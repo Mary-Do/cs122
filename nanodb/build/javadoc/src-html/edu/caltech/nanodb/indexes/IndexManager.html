@@ -1,0 +1,204 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<title>Source code</title>
+<link rel="stylesheet" type="text/css" href="../../../../../stylesheet.css" title="Style">
+</head>
+<body>
+<div class="sourceContainer">
+<pre><span class="sourceLineNo">001</span>package edu.caltech.nanodb.indexes;<a name="line.1"></a>
+<span class="sourceLineNo">002</span><a name="line.2"></a>
+<span class="sourceLineNo">003</span><a name="line.3"></a>
+<span class="sourceLineNo">004</span>import java.io.IOException;<a name="line.4"></a>
+<span class="sourceLineNo">005</span>import java.util.List;<a name="line.5"></a>
+<span class="sourceLineNo">006</span><a name="line.6"></a>
+<span class="sourceLineNo">007</span>import edu.caltech.nanodb.relations.ColumnRefs;<a name="line.7"></a>
+<span class="sourceLineNo">008</span>import edu.caltech.nanodb.relations.TableConstraintType;<a name="line.8"></a>
+<span class="sourceLineNo">009</span>import edu.caltech.nanodb.relations.TableInfo;<a name="line.9"></a>
+<span class="sourceLineNo">010</span><a name="line.10"></a>
+<span class="sourceLineNo">011</span><a name="line.11"></a>
+<span class="sourceLineNo">012</span>/**<a name="line.12"></a>
+<span class="sourceLineNo">013</span> * This interface specifies all operations that are necessary for supporting<a name="line.13"></a>
+<span class="sourceLineNo">014</span> * indexes in NanoDB.  Indexes are implemented as<a name="line.14"></a>
+<span class="sourceLineNo">015</span> * {@link edu.caltech.nanodb.storage.TupleFile tuple files} with a schema<a name="line.15"></a>
+<span class="sourceLineNo">016</span> * containing the indexed columns, as well as a tuple-pointer column that<a name="line.16"></a>
+<span class="sourceLineNo">017</span> * references the indexed tuples.  Therefore, many of the specific lookup<a name="line.17"></a>
+<span class="sourceLineNo">018</span> * operations are provided directly by the underlying<a name="line.18"></a>
+<span class="sourceLineNo">019</span> * {@link edu.caltech.nanodb.storage.TupleFile} implementation that exposes<a name="line.19"></a>
+<span class="sourceLineNo">020</span> * these operations.<a name="line.20"></a>
+<span class="sourceLineNo">021</span> */<a name="line.21"></a>
+<span class="sourceLineNo">022</span>public interface IndexManager {<a name="line.22"></a>
+<span class="sourceLineNo">023</span><a name="line.23"></a>
+<span class="sourceLineNo">024</span>    /**<a name="line.24"></a>
+<span class="sourceLineNo">025</span>     * A constant specifying the name of the column that will hold the table's<a name="line.25"></a>
+<span class="sourceLineNo">026</span>     * tuple pointer in an index file.<a name="line.26"></a>
+<span class="sourceLineNo">027</span>     */<a name="line.27"></a>
+<span class="sourceLineNo">028</span>    public static final String COLNAME_TUPLEPTR = "#TUPLE_PTR";<a name="line.28"></a>
+<span class="sourceLineNo">029</span><a name="line.29"></a>
+<span class="sourceLineNo">030</span><a name="line.30"></a>
+<span class="sourceLineNo">031</span>    boolean indexExists(String tableName, String indexName) throws IOException;<a name="line.31"></a>
+<span class="sourceLineNo">032</span><a name="line.32"></a>
+<span class="sourceLineNo">033</span><a name="line.33"></a>
+<span class="sourceLineNo">034</span>    IndexInfo addIndexToTable(TableInfo tableInfo, ColumnRefs indexColRefs)<a name="line.34"></a>
+<span class="sourceLineNo">035</span>        throws IOException;<a name="line.35"></a>
+<span class="sourceLineNo">036</span><a name="line.36"></a>
+<span class="sourceLineNo">037</span><a name="line.37"></a>
+<span class="sourceLineNo">038</span>    void createIndex(IndexInfo indexInfo, String indexName) throws IOException;<a name="line.38"></a>
+<span class="sourceLineNo">039</span><a name="line.39"></a>
+<span class="sourceLineNo">040</span><a name="line.40"></a>
+<span class="sourceLineNo">041</span>    void createUnnamedIndex(IndexInfo indexInfo) throws IOException;<a name="line.41"></a>
+<span class="sourceLineNo">042</span><a name="line.42"></a>
+<span class="sourceLineNo">043</span><a name="line.43"></a>
+<span class="sourceLineNo">044</span>    /**<a name="line.44"></a>
+<span class="sourceLineNo">045</span>     * This method opens the data file corresponding to the specified index<a name="line.45"></a>
+<span class="sourceLineNo">046</span>     * name and reads in the index's details.  If the index is already open<a name="line.46"></a>
+<span class="sourceLineNo">047</span>     * then the cached data is simply returned.<a name="line.47"></a>
+<span class="sourceLineNo">048</span>     *<a name="line.48"></a>
+<span class="sourceLineNo">049</span>     * @param tableInfo the table that the index is defined on<a name="line.49"></a>
+<span class="sourceLineNo">050</span>     *<a name="line.50"></a>
+<span class="sourceLineNo">051</span>     * @param indexName the name of the index to open.  Indexes are not<a name="line.51"></a>
+<span class="sourceLineNo">052</span>     *        referenced directly except by CREATE/ALTER/DROP INDEX statements,<a name="line.52"></a>
+<span class="sourceLineNo">053</span>     *        so these index names are stored in the table schema files, and are<a name="line.53"></a>
+<span class="sourceLineNo">054</span>     *        generally opened when the optimizer needs to know what indexes are<a name="line.54"></a>
+<span class="sourceLineNo">055</span>     *        available.<a name="line.55"></a>
+<span class="sourceLineNo">056</span>     *<a name="line.56"></a>
+<span class="sourceLineNo">057</span>     * @return an object representing the details of the open index<a name="line.57"></a>
+<span class="sourceLineNo">058</span>     *<a name="line.58"></a>
+<span class="sourceLineNo">059</span>     * @throws java.io.FileNotFoundException if no index-file exists for the<a name="line.59"></a>
+<span class="sourceLineNo">060</span>     *         index; in other words, it doesn't yet exist.<a name="line.60"></a>
+<span class="sourceLineNo">061</span>     *<a name="line.61"></a>
+<span class="sourceLineNo">062</span>     * @throws IOException if an IO error occurs when attempting to open the<a name="line.62"></a>
+<span class="sourceLineNo">063</span>     *         index.<a name="line.63"></a>
+<span class="sourceLineNo">064</span>     */<a name="line.64"></a>
+<span class="sourceLineNo">065</span>    IndexInfo openIndex(TableInfo tableInfo, String indexName) throws IOException;<a name="line.65"></a>
+<span class="sourceLineNo">066</span><a name="line.66"></a>
+<span class="sourceLineNo">067</span><a name="line.67"></a>
+<span class="sourceLineNo">068</span>    /**<a name="line.68"></a>
+<span class="sourceLineNo">069</span>     * This method loads the details for the specified index.<a name="line.69"></a>
+<span class="sourceLineNo">070</span>     *<a name="line.70"></a>
+<span class="sourceLineNo">071</span>     * @param indexInfo the index information object to populate.  When this<a name="line.71"></a>
+<span class="sourceLineNo">072</span>     *        is passed in, it only contains the index's name, the name of the<a name="line.72"></a>
+<span class="sourceLineNo">073</span>     *        table the index is specified on, and the opened database file to<a name="line.73"></a>
+<span class="sourceLineNo">074</span>     *        read the data from.<a name="line.74"></a>
+<span class="sourceLineNo">075</span>     *<a name="line.75"></a>
+<span class="sourceLineNo">076</span>     * @throws IOException if an IO error occurs when attempting to load the<a name="line.76"></a>
+<span class="sourceLineNo">077</span>     *         index's details.<a name="line.77"></a>
+<span class="sourceLineNo">078</span>     */<a name="line.78"></a>
+<span class="sourceLineNo">079</span>    void loadIndexInfo(IndexInfo indexInfo) throws IOException;<a name="line.79"></a>
+<span class="sourceLineNo">080</span><a name="line.80"></a>
+<span class="sourceLineNo">081</span><a name="line.81"></a>
+<span class="sourceLineNo">082</span>    /**<a name="line.82"></a>
+<span class="sourceLineNo">083</span>     * This method initializes a newly created index file, using the details<a name="line.83"></a>
+<span class="sourceLineNo">084</span>     * specified in the passed-in &lt;tt&gt;IndexInfo&lt;/tt&gt; object.<a name="line.84"></a>
+<span class="sourceLineNo">085</span>     *<a name="line.85"></a>
+<span class="sourceLineNo">086</span>     * @param indexInfo This object is an in/out parameter.  It is used to<a name="line.86"></a>
+<span class="sourceLineNo">087</span>     *        specify the name and details of the new index being created.  When<a name="line.87"></a>
+<span class="sourceLineNo">088</span>     *        the index is successfully created, the object is updated with the<a name="line.88"></a>
+<span class="sourceLineNo">089</span>     *        actual file that the index's data is stored in.<a name="line.89"></a>
+<span class="sourceLineNo">090</span>     *<a name="line.90"></a>
+<span class="sourceLineNo">091</span>     * @throws IOException if the file cannot be created, or if an error occurs<a name="line.91"></a>
+<span class="sourceLineNo">092</span>     *         while storing the initial index data.<a name="line.92"></a>
+<span class="sourceLineNo">093</span>     */<a name="line.93"></a>
+<span class="sourceLineNo">094</span>    void saveIndexInfo(IndexInfo indexInfo) throws IOException;<a name="line.94"></a>
+<span class="sourceLineNo">095</span><a name="line.95"></a>
+<span class="sourceLineNo">096</span><a name="line.96"></a>
+<span class="sourceLineNo">097</span>    /**<a name="line.97"></a>
+<span class="sourceLineNo">098</span>     * This function allows an index to be verified for proper structure and<a name="line.98"></a>
+<span class="sourceLineNo">099</span>     * contents.<a name="line.99"></a>
+<span class="sourceLineNo">100</span>     *<a name="line.100"></a>
+<span class="sourceLineNo">101</span>     * @param indexInfo the index to verify<a name="line.101"></a>
+<span class="sourceLineNo">102</span>     *<a name="line.102"></a>
+<span class="sourceLineNo">103</span>     * @throws IOException if an IO error occurs while verifying the index<a name="line.103"></a>
+<span class="sourceLineNo">104</span>     *<a name="line.104"></a>
+<span class="sourceLineNo">105</span>     * @todo Should this be in this interface?<a name="line.105"></a>
+<span class="sourceLineNo">106</span>     */<a name="line.106"></a>
+<span class="sourceLineNo">107</span>    List&lt;String&gt; verifyIndex(IndexInfo indexInfo) throws IOException;<a name="line.107"></a>
+<span class="sourceLineNo">108</span><a name="line.108"></a>
+<span class="sourceLineNo">109</span><a name="line.109"></a>
+<span class="sourceLineNo">110</span>    void analyzeIndex(IndexInfo indexInfo) throws IOException;<a name="line.110"></a>
+<span class="sourceLineNo">111</span><a name="line.111"></a>
+<span class="sourceLineNo">112</span><a name="line.112"></a>
+<span class="sourceLineNo">113</span>    /**<a name="line.113"></a>
+<span class="sourceLineNo">114</span>     * This method performs whatever optimization is suitable for the specific<a name="line.114"></a>
+<span class="sourceLineNo">115</span>     * kind of index that is implemented.  For example, if the logical and<a name="line.115"></a>
+<span class="sourceLineNo">116</span>     * physical ordering of pages is widely different, this method can resolve<a name="line.116"></a>
+<span class="sourceLineNo">117</span>     * that kind of issue.<a name="line.117"></a>
+<span class="sourceLineNo">118</span>     *<a name="line.118"></a>
+<span class="sourceLineNo">119</span>     * @param indexInfo the index to optimize<a name="line.119"></a>
+<span class="sourceLineNo">120</span>     *<a name="line.120"></a>
+<span class="sourceLineNo">121</span>     * @throws IOException if an IO error occurs while optimizing the index<a name="line.121"></a>
+<span class="sourceLineNo">122</span>     *<a name="line.122"></a>
+<span class="sourceLineNo">123</span>     * @todo Should this be in this interface?<a name="line.123"></a>
+<span class="sourceLineNo">124</span>     */<a name="line.124"></a>
+<span class="sourceLineNo">125</span>    void optimizeIndex(IndexInfo indexInfo) throws IOException;<a name="line.125"></a>
+<span class="sourceLineNo">126</span><a name="line.126"></a>
+<span class="sourceLineNo">127</span><a name="line.127"></a>
+<span class="sourceLineNo">128</span>    void closeIndex(IndexInfo indexInfo) throws IOException;<a name="line.128"></a>
+<span class="sourceLineNo">129</span><a name="line.129"></a>
+<span class="sourceLineNo">130</span><a name="line.130"></a>
+<span class="sourceLineNo">131</span>    void dropIndex(TableInfo tableInfo, String indexName) throws IOException;<a name="line.131"></a>
+<span class="sourceLineNo">132</span>}<a name="line.132"></a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,144 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<title>Source code</title>
+<link rel="stylesheet" type="text/css" href="../../../../../stylesheet.css" title="Style">
+</head>
+<body>
+<div class="sourceContainer">
+<pre><span class="sourceLineNo">001</span>package edu.caltech.nanodb.commands;<a name="line.1"></a>
+<span class="sourceLineNo">002</span><a name="line.2"></a>
+<span class="sourceLineNo">003</span><a name="line.3"></a>
+<span class="sourceLineNo">004</span>import edu.caltech.nanodb.client.SessionState;<a name="line.4"></a>
+<span class="sourceLineNo">005</span>import edu.caltech.nanodb.server.NanoDBServer;<a name="line.5"></a>
+<span class="sourceLineNo">006</span><a name="line.6"></a>
+<span class="sourceLineNo">007</span>import java.io.PrintStream;<a name="line.7"></a>
+<span class="sourceLineNo">008</span><a name="line.8"></a>
+<span class="sourceLineNo">009</span><a name="line.9"></a>
+<span class="sourceLineNo">010</span>/**<a name="line.10"></a>
+<span class="sourceLineNo">011</span> * Abstract base-class for all commands that NanoDB supports.  Command classes<a name="line.11"></a>
+<span class="sourceLineNo">012</span> * contain both the arguments and configuration details for the command being<a name="line.12"></a>
+<span class="sourceLineNo">013</span> * executed, as well as the code for actually performing the command.  Databases<a name="line.13"></a>
+<span class="sourceLineNo">014</span> * tend to have large &lt;tt&gt;switch&lt;/tt&gt; statements controlling how various<a name="line.14"></a>
+<span class="sourceLineNo">015</span> * commands are handled, and this really isn't a very pretty way to do things.<a name="line.15"></a>
+<span class="sourceLineNo">016</span> * So, NanoDB uses a class-hierarchy for command representation and execution.<a name="line.16"></a>
+<span class="sourceLineNo">017</span> * &lt;p&gt;<a name="line.17"></a>
+<span class="sourceLineNo">018</span> * The command class is subclassed into various command categories that relate<a name="line.18"></a>
+<span class="sourceLineNo">019</span> * to various operations in the database.  For example, the {@link QueryCommand}<a name="line.19"></a>
+<span class="sourceLineNo">020</span> * class represents all &lt;tt&gt;SELECT&lt;/tt&gt;, &lt;tt&gt;INSERT&lt;/tt&gt;, &lt;tt&gt;UPDATE&lt;/tt&gt;, and<a name="line.20"></a>
+<span class="sourceLineNo">021</span> * &lt;tt&gt;DELETE&lt;/tt&gt; operations.<a name="line.21"></a>
+<span class="sourceLineNo">022</span> */<a name="line.22"></a>
+<span class="sourceLineNo">023</span>public abstract class Command {<a name="line.23"></a>
+<span class="sourceLineNo">024</span>    /**<a name="line.24"></a>
+<span class="sourceLineNo">025</span>     * Commands are either Data-Definition Language (DDL), Data-Manipulation<a name="line.25"></a>
+<span class="sourceLineNo">026</span>     * Language (DML), or utility commands.<a name="line.26"></a>
+<span class="sourceLineNo">027</span>     */<a name="line.27"></a>
+<span class="sourceLineNo">028</span>    public enum Type {<a name="line.28"></a>
+<span class="sourceLineNo">029</span>        /** A Data Definition Language (DDL) command. */<a name="line.29"></a>
+<span class="sourceLineNo">030</span>        DDL,<a name="line.30"></a>
+<span class="sourceLineNo">031</span><a name="line.31"></a>
+<span class="sourceLineNo">032</span>        /** A Data Manipulation Language (DML) command. */<a name="line.32"></a>
+<span class="sourceLineNo">033</span>        DML,<a name="line.33"></a>
+<span class="sourceLineNo">034</span><a name="line.34"></a>
+<span class="sourceLineNo">035</span>        /** A utility command. */<a name="line.35"></a>
+<span class="sourceLineNo">036</span>        UTILITY<a name="line.36"></a>
+<span class="sourceLineNo">037</span>    }<a name="line.37"></a>
+<span class="sourceLineNo">038</span><a name="line.38"></a>
+<span class="sourceLineNo">039</span><a name="line.39"></a>
+<span class="sourceLineNo">040</span>    /** The type of this command. */<a name="line.40"></a>
+<span class="sourceLineNo">041</span>    private Type cmdType;<a name="line.41"></a>
+<span class="sourceLineNo">042</span><a name="line.42"></a>
+<span class="sourceLineNo">043</span><a name="line.43"></a>
+<span class="sourceLineNo">044</span>    /**<a name="line.44"></a>
+<span class="sourceLineNo">045</span>     * This is the output stream for the current session, so that command<a name="line.45"></a>
+<span class="sourceLineNo">046</span>     * output goes to the appropriate client.<a name="line.46"></a>
+<span class="sourceLineNo">047</span>     */<a name="line.47"></a>
+<span class="sourceLineNo">048</span>    protected PrintStream out;<a name="line.48"></a>
+<span class="sourceLineNo">049</span><a name="line.49"></a>
+<span class="sourceLineNo">050</span><a name="line.50"></a>
+<span class="sourceLineNo">051</span>    /**<a name="line.51"></a>
+<span class="sourceLineNo">052</span>     * Create a new command instance, of the specified command-type.  The<a name="line.52"></a>
+<span class="sourceLineNo">053</span>     * constructor is protected, but that is redundant with the fact that the<a name="line.53"></a>
+<span class="sourceLineNo">054</span>     * class is abstract anyways, so this class cannot be constructed directly.<a name="line.54"></a>
+<span class="sourceLineNo">055</span>     *<a name="line.55"></a>
+<span class="sourceLineNo">056</span>     * @param cmdType the general category of command<a name="line.56"></a>
+<span class="sourceLineNo">057</span>     */<a name="line.57"></a>
+<span class="sourceLineNo">058</span>    protected Command(Type cmdType) {<a name="line.58"></a>
+<span class="sourceLineNo">059</span>        this.cmdType = cmdType;<a name="line.59"></a>
+<span class="sourceLineNo">060</span><a name="line.60"></a>
+<span class="sourceLineNo">061</span>        this.out = SessionState.get().getOutputStream();<a name="line.61"></a>
+<span class="sourceLineNo">062</span>    }<a name="line.62"></a>
+<span class="sourceLineNo">063</span><a name="line.63"></a>
+<span class="sourceLineNo">064</span><a name="line.64"></a>
+<span class="sourceLineNo">065</span>    /**<a name="line.65"></a>
+<span class="sourceLineNo">066</span>     * Actually performs the command.<a name="line.66"></a>
+<span class="sourceLineNo">067</span>     *<a name="line.67"></a>
+<span class="sourceLineNo">068</span>     * @throws ExecutionException if an issue occurs during command execution<a name="line.68"></a>
+<span class="sourceLineNo">069</span>     */<a name="line.69"></a>
+<span class="sourceLineNo">070</span>    public abstract void execute(NanoDBServer server)<a name="line.70"></a>
+<span class="sourceLineNo">071</span>        throws ExecutionException;<a name="line.71"></a>
+<span class="sourceLineNo">072</span>}<a name="line.72"></a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,266 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<title>Source code</title>
+<link rel="stylesheet" type="text/css" href="../../../../../stylesheet.css" title="Style">
+</head>
+<body>
+<div class="sourceContainer">
+<pre><span class="sourceLineNo">001</span>package edu.caltech.nanodb.plannodes;<a name="line.1"></a>
+<span class="sourceLineNo">002</span><a name="line.2"></a>
+<span class="sourceLineNo">003</span><a name="line.3"></a>
+<span class="sourceLineNo">004</span>import edu.caltech.nanodb.expressions.Expression;<a name="line.4"></a>
+<span class="sourceLineNo">005</span>import edu.caltech.nanodb.expressions.TupleLiteral;<a name="line.5"></a>
+<span class="sourceLineNo">006</span><a name="line.6"></a>
+<span class="sourceLineNo">007</span>import edu.caltech.nanodb.queryeval.ColumnStats;<a name="line.7"></a>
+<span class="sourceLineNo">008</span>import edu.caltech.nanodb.relations.JoinType;<a name="line.8"></a>
+<span class="sourceLineNo">009</span>import edu.caltech.nanodb.relations.Schema;<a name="line.9"></a>
+<span class="sourceLineNo">010</span>import edu.caltech.nanodb.relations.Tuple;<a name="line.10"></a>
+<span class="sourceLineNo">011</span><a name="line.11"></a>
+<span class="sourceLineNo">012</span>import java.util.ArrayList;<a name="line.12"></a>
+<span class="sourceLineNo">013</span><a name="line.13"></a>
+<span class="sourceLineNo">014</span><a name="line.14"></a>
+<span class="sourceLineNo">015</span>/**<a name="line.15"></a>
+<span class="sourceLineNo">016</span> * PlanNode representing the &lt;tt&gt;FROM&lt;/tt&gt; clause in a &lt;tt&gt;SELECT&lt;/tt&gt;<a name="line.16"></a>
+<span class="sourceLineNo">017</span> * operation.  This is the relational algebra ThetaJoin operator.<a name="line.17"></a>
+<span class="sourceLineNo">018</span> */<a name="line.18"></a>
+<span class="sourceLineNo">019</span>public abstract class ThetaJoinNode extends PlanNode {<a name="line.19"></a>
+<span class="sourceLineNo">020</span><a name="line.20"></a>
+<span class="sourceLineNo">021</span>    /** The type of the join operation to perform. */<a name="line.21"></a>
+<span class="sourceLineNo">022</span>    public JoinType joinType;<a name="line.22"></a>
+<span class="sourceLineNo">023</span><a name="line.23"></a>
+<span class="sourceLineNo">024</span><a name="line.24"></a>
+<span class="sourceLineNo">025</span>    /** Join condition. */<a name="line.25"></a>
+<span class="sourceLineNo">026</span>    public Expression predicate;<a name="line.26"></a>
+<span class="sourceLineNo">027</span><a name="line.27"></a>
+<span class="sourceLineNo">028</span><a name="line.28"></a>
+<span class="sourceLineNo">029</span>    /**<a name="line.29"></a>
+<span class="sourceLineNo">030</span>     * The cached schema of the left subplan, used for join-predicate<a name="line.30"></a>
+<span class="sourceLineNo">031</span>     * evaluation.<a name="line.31"></a>
+<span class="sourceLineNo">032</span>     */<a name="line.32"></a>
+<span class="sourceLineNo">033</span>    protected Schema leftSchema;<a name="line.33"></a>
+<span class="sourceLineNo">034</span><a name="line.34"></a>
+<span class="sourceLineNo">035</span><a name="line.35"></a>
+<span class="sourceLineNo">036</span>    /** The cached statistics of the left subplan, used for cost estimation. */<a name="line.36"></a>
+<span class="sourceLineNo">037</span>    protected ArrayList&lt;ColumnStats&gt; leftStats;<a name="line.37"></a>
+<span class="sourceLineNo">038</span><a name="line.38"></a>
+<span class="sourceLineNo">039</span><a name="line.39"></a>
+<span class="sourceLineNo">040</span>    /**<a name="line.40"></a>
+<span class="sourceLineNo">041</span>     * The cached schema of the right subplan, used for join-predicate<a name="line.41"></a>
+<span class="sourceLineNo">042</span>     * evaluation.<a name="line.42"></a>
+<span class="sourceLineNo">043</span>     */<a name="line.43"></a>
+<span class="sourceLineNo">044</span>    protected Schema rightSchema;<a name="line.44"></a>
+<span class="sourceLineNo">045</span><a name="line.45"></a>
+<span class="sourceLineNo">046</span><a name="line.46"></a>
+<span class="sourceLineNo">047</span>    /** The cached statistics of the right subplan, used for cost estimation. */<a name="line.47"></a>
+<span class="sourceLineNo">048</span>    protected ArrayList&lt;ColumnStats&gt; rightStats;<a name="line.48"></a>
+<span class="sourceLineNo">049</span><a name="line.49"></a>
+<span class="sourceLineNo">050</span><a name="line.50"></a>
+<span class="sourceLineNo">051</span>    /**<a name="line.51"></a>
+<span class="sourceLineNo">052</span>     * True if the output schema of this node is swapped.  If this flag is true<a name="line.52"></a>
+<span class="sourceLineNo">053</span>     * then tuples from the left subplan will be on the right of joined results<a name="line.53"></a>
+<span class="sourceLineNo">054</span>     * and so forth, but if the flag is false then the tuples from the left<a name="line.54"></a>
+<span class="sourceLineNo">055</span>     * subplan will be on the left of the joined results.  The schema and the<a name="line.55"></a>
+<span class="sourceLineNo">056</span>     * statistics values reflect the state of this flag, after {@link #prepare}<a name="line.56"></a>
+<span class="sourceLineNo">057</span>     * has been called.<a name="line.57"></a>
+<span class="sourceLineNo">058</span>     */<a name="line.58"></a>
+<span class="sourceLineNo">059</span>    protected boolean schemaSwapped = false;<a name="line.59"></a>
+<span class="sourceLineNo">060</span><a name="line.60"></a>
+<span class="sourceLineNo">061</span><a name="line.61"></a>
+<span class="sourceLineNo">062</span>    /**<a name="line.62"></a>
+<span class="sourceLineNo">063</span>     * Constructs a ThetaJoinNode that joins the tuples from the left and right<a name="line.63"></a>
+<span class="sourceLineNo">064</span>     * subplans, using the specified join type and join predicate.<a name="line.64"></a>
+<span class="sourceLineNo">065</span>     *<a name="line.65"></a>
+<span class="sourceLineNo">066</span>     * @param leftChild the left relation<a name="line.66"></a>
+<span class="sourceLineNo">067</span>     *<a name="line.67"></a>
+<span class="sourceLineNo">068</span>     * @param rightChild the right relation<a name="line.68"></a>
+<span class="sourceLineNo">069</span>     *<a name="line.69"></a>
+<span class="sourceLineNo">070</span>     * @param joinType the type of join operation to perform<a name="line.70"></a>
+<span class="sourceLineNo">071</span>     *<a name="line.71"></a>
+<span class="sourceLineNo">072</span>     * @param predicate the join condition<a name="line.72"></a>
+<span class="sourceLineNo">073</span>     */<a name="line.73"></a>
+<span class="sourceLineNo">074</span>    public ThetaJoinNode(PlanNode leftChild, PlanNode rightChild,<a name="line.74"></a>
+<span class="sourceLineNo">075</span>        JoinType joinType, Expression predicate) {<a name="line.75"></a>
+<span class="sourceLineNo">076</span><a name="line.76"></a>
+<span class="sourceLineNo">077</span>        super(OperationType.THETA_JOIN, leftChild, rightChild);<a name="line.77"></a>
+<span class="sourceLineNo">078</span><a name="line.78"></a>
+<span class="sourceLineNo">079</span>        if (joinType == null)<a name="line.79"></a>
+<span class="sourceLineNo">080</span>            throw new IllegalArgumentException("joinType cannot be null");<a name="line.80"></a>
+<span class="sourceLineNo">081</span><a name="line.81"></a>
+<span class="sourceLineNo">082</span>        this.joinType = joinType;<a name="line.82"></a>
+<span class="sourceLineNo">083</span>        this.predicate = predicate;<a name="line.83"></a>
+<span class="sourceLineNo">084</span>    }<a name="line.84"></a>
+<span class="sourceLineNo">085</span><a name="line.85"></a>
+<span class="sourceLineNo">086</span><a name="line.86"></a>
+<span class="sourceLineNo">087</span>    /**<a name="line.87"></a>
+<span class="sourceLineNo">088</span>     * Combine the left tuple and the right tuple. If schemaSwapped is set to<a name="line.88"></a>
+<span class="sourceLineNo">089</span>     * true, the tuples are copied in the opposite order.  This can only<a name="line.89"></a>
+<span class="sourceLineNo">090</span>     * happen if swap() was called an odd number of times, switching the left<a name="line.90"></a>
+<span class="sourceLineNo">091</span>     * and right subtrees.<a name="line.91"></a>
+<span class="sourceLineNo">092</span>     *<a name="line.92"></a>
+<span class="sourceLineNo">093</span>     * @param left the left tuple<a name="line.93"></a>
+<span class="sourceLineNo">094</span>     * @param right the right tuple<a name="line.94"></a>
+<span class="sourceLineNo">095</span>     * @return the combined tuple<a name="line.95"></a>
+<span class="sourceLineNo">096</span>     */<a name="line.96"></a>
+<span class="sourceLineNo">097</span>    protected Tuple joinTuples(Tuple left, Tuple right) {<a name="line.97"></a>
+<span class="sourceLineNo">098</span><a name="line.98"></a>
+<span class="sourceLineNo">099</span>        // TODO:  Extend this to support semi-join and anti-join.<a name="line.99"></a>
+<span class="sourceLineNo">100</span>        if (joinType == JoinType.SEMIJOIN || joinType == JoinType.ANTIJOIN)<a name="line.100"></a>
+<span class="sourceLineNo">101</span>            throw new UnsupportedOperationException("Not yet implemented!");<a name="line.101"></a>
+<span class="sourceLineNo">102</span><a name="line.102"></a>
+<span class="sourceLineNo">103</span>        TupleLiteral joinedTuple = new TupleLiteral();<a name="line.103"></a>
+<span class="sourceLineNo">104</span>        // appendTuple() also copies schema information from the source tuples.<a name="line.104"></a>
+<span class="sourceLineNo">105</span><a name="line.105"></a>
+<span class="sourceLineNo">106</span>        if (!schemaSwapped) {<a name="line.106"></a>
+<span class="sourceLineNo">107</span>            joinedTuple.appendTuple(left);<a name="line.107"></a>
+<span class="sourceLineNo">108</span>            joinedTuple.appendTuple(right);<a name="line.108"></a>
+<span class="sourceLineNo">109</span>        }<a name="line.109"></a>
+<span class="sourceLineNo">110</span>        else {<a name="line.110"></a>
+<span class="sourceLineNo">111</span>            joinedTuple.appendTuple(right);<a name="line.111"></a>
+<span class="sourceLineNo">112</span>            joinedTuple.appendTuple(left);<a name="line.112"></a>
+<span class="sourceLineNo">113</span>        }<a name="line.113"></a>
+<span class="sourceLineNo">114</span><a name="line.114"></a>
+<span class="sourceLineNo">115</span>        return joinedTuple;<a name="line.115"></a>
+<span class="sourceLineNo">116</span>    }<a name="line.116"></a>
+<span class="sourceLineNo">117</span><a name="line.117"></a>
+<span class="sourceLineNo">118</span><a name="line.118"></a>
+<span class="sourceLineNo">119</span>    /**<a name="line.119"></a>
+<span class="sourceLineNo">120</span>     * Do initialization for the join operation. Resets state variables.<a name="line.120"></a>
+<span class="sourceLineNo">121</span>     * Initialize both children.<a name="line.121"></a>
+<span class="sourceLineNo">122</span>     */<a name="line.122"></a>
+<span class="sourceLineNo">123</span>    public void initialize() {<a name="line.123"></a>
+<span class="sourceLineNo">124</span>        super.initialize();<a name="line.124"></a>
+<span class="sourceLineNo">125</span><a name="line.125"></a>
+<span class="sourceLineNo">126</span>        if (joinType != JoinType.CROSS &amp;&amp; joinType != JoinType.INNER) {<a name="line.126"></a>
+<span class="sourceLineNo">127</span>            throw new UnsupportedOperationException(<a name="line.127"></a>
+<span class="sourceLineNo">128</span>                "We don't support joins of type " + joinType + " yet!");<a name="line.128"></a>
+<span class="sourceLineNo">129</span>        }<a name="line.129"></a>
+<span class="sourceLineNo">130</span><a name="line.130"></a>
+<span class="sourceLineNo">131</span>        leftChild.initialize();<a name="line.131"></a>
+<span class="sourceLineNo">132</span>        rightChild.initialize();<a name="line.132"></a>
+<span class="sourceLineNo">133</span>    }<a name="line.133"></a>
+<span class="sourceLineNo">134</span><a name="line.134"></a>
+<span class="sourceLineNo">135</span><a name="line.135"></a>
+<span class="sourceLineNo">136</span>    /**<a name="line.136"></a>
+<span class="sourceLineNo">137</span>     * This helper method can be used by the {@link #prepare} method in<a name="line.137"></a>
+<span class="sourceLineNo">138</span>     * subclasses, to compute the output schema and initial stats of the<a name="line.138"></a>
+<span class="sourceLineNo">139</span>     * join operation.  This method is provided because it takes the<a name="line.139"></a>
+<span class="sourceLineNo">140</span>     * {@link #schemaSwapped} flag into account when ordering the schema<a name="line.140"></a>
+<span class="sourceLineNo">141</span>     * and stats.<a name="line.141"></a>
+<span class="sourceLineNo">142</span>     */<a name="line.142"></a>
+<span class="sourceLineNo">143</span>    protected void prepareSchemaStats() {<a name="line.143"></a>
+<span class="sourceLineNo">144</span>        leftSchema = leftChild.getSchema();<a name="line.144"></a>
+<span class="sourceLineNo">145</span>        rightSchema = rightChild.getSchema();<a name="line.145"></a>
+<span class="sourceLineNo">146</span><a name="line.146"></a>
+<span class="sourceLineNo">147</span>        leftStats = leftChild.getStats();<a name="line.147"></a>
+<span class="sourceLineNo">148</span>        rightStats = rightChild.getStats();<a name="line.148"></a>
+<span class="sourceLineNo">149</span><a name="line.149"></a>
+<span class="sourceLineNo">150</span>        stats = new ArrayList&lt;ColumnStats&gt;();<a name="line.150"></a>
+<span class="sourceLineNo">151</span><a name="line.151"></a>
+<span class="sourceLineNo">152</span>        schema = new Schema();<a name="line.152"></a>
+<span class="sourceLineNo">153</span>        if (!schemaSwapped) {<a name="line.153"></a>
+<span class="sourceLineNo">154</span>            schema.append(leftSchema);<a name="line.154"></a>
+<span class="sourceLineNo">155</span>            schema.append(rightSchema);<a name="line.155"></a>
+<span class="sourceLineNo">156</span><a name="line.156"></a>
+<span class="sourceLineNo">157</span>            stats.addAll(leftStats);<a name="line.157"></a>
+<span class="sourceLineNo">158</span>            stats.addAll(rightStats);<a name="line.158"></a>
+<span class="sourceLineNo">159</span>        }<a name="line.159"></a>
+<span class="sourceLineNo">160</span>        else {<a name="line.160"></a>
+<span class="sourceLineNo">161</span>            schema.append(rightSchema);<a name="line.161"></a>
+<span class="sourceLineNo">162</span>            schema.append(leftSchema);<a name="line.162"></a>
+<span class="sourceLineNo">163</span><a name="line.163"></a>
+<span class="sourceLineNo">164</span>            stats.addAll(rightStats);<a name="line.164"></a>
+<span class="sourceLineNo">165</span>            stats.addAll(leftStats);<a name="line.165"></a>
+<span class="sourceLineNo">166</span>        }<a name="line.166"></a>
+<span class="sourceLineNo">167</span>    }<a name="line.167"></a>
+<span class="sourceLineNo">168</span><a name="line.168"></a>
+<span class="sourceLineNo">169</span><a name="line.169"></a>
+<span class="sourceLineNo">170</span>    /**<a name="line.170"></a>
+<span class="sourceLineNo">171</span>     * Swaps the left child and right child subtrees. Ensures that the schema<a name="line.171"></a>
+<span class="sourceLineNo">172</span>     * of the node does not change in the swap, so that this is still a valid<a name="line.172"></a>
+<span class="sourceLineNo">173</span>     * query plan.<a name="line.173"></a>
+<span class="sourceLineNo">174</span>     */<a name="line.174"></a>
+<span class="sourceLineNo">175</span>    public void swap() {<a name="line.175"></a>
+<span class="sourceLineNo">176</span>        PlanNode left = leftChild;<a name="line.176"></a>
+<span class="sourceLineNo">177</span>        leftChild = rightChild;<a name="line.177"></a>
+<span class="sourceLineNo">178</span>        rightChild = left;<a name="line.178"></a>
+<span class="sourceLineNo">179</span><a name="line.179"></a>
+<span class="sourceLineNo">180</span>        schemaSwapped = !schemaSwapped;<a name="line.180"></a>
+<span class="sourceLineNo">181</span>    }<a name="line.181"></a>
+<span class="sourceLineNo">182</span><a name="line.182"></a>
+<span class="sourceLineNo">183</span><a name="line.183"></a>
+<span class="sourceLineNo">184</span>    /**<a name="line.184"></a>
+<span class="sourceLineNo">185</span>     * Returns true if the schema is swapped in this theta join node, false<a name="line.185"></a>
+<span class="sourceLineNo">186</span>     * otherwise.<a name="line.186"></a>
+<span class="sourceLineNo">187</span>     *<a name="line.187"></a>
+<span class="sourceLineNo">188</span>     * @return true if the schema is swapped in this theta join node, false<a name="line.188"></a>
+<span class="sourceLineNo">189</span>     *         otherwise.<a name="line.189"></a>
+<span class="sourceLineNo">190</span>     */<a name="line.190"></a>
+<span class="sourceLineNo">191</span>    public boolean isSwapped() {<a name="line.191"></a>
+<span class="sourceLineNo">192</span>        return schemaSwapped;<a name="line.192"></a>
+<span class="sourceLineNo">193</span>    }<a name="line.193"></a>
+<span class="sourceLineNo">194</span>}<a name="line.194"></a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre>
+</div>
+</body>
+</html>

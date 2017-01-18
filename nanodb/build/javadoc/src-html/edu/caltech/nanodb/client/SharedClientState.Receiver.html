@@ -1,0 +1,259 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<title>Source code</title>
+<link rel="stylesheet" type="text/css" href="../../../../../stylesheet.css" title="Style">
+</head>
+<body>
+<div class="sourceContainer">
+<pre><span class="sourceLineNo">001</span>package edu.caltech.nanodb.client;<a name="line.1"></a>
+<span class="sourceLineNo">002</span><a name="line.2"></a>
+<span class="sourceLineNo">003</span>import java.io.EOFException;<a name="line.3"></a>
+<span class="sourceLineNo">004</span>import java.io.IOException;<a name="line.4"></a>
+<span class="sourceLineNo">005</span>import java.io.ObjectInputStream;<a name="line.5"></a>
+<span class="sourceLineNo">006</span>import java.io.ObjectOutputStream;<a name="line.6"></a>
+<span class="sourceLineNo">007</span>import java.io.PrintStream;<a name="line.7"></a>
+<span class="sourceLineNo">008</span>import java.net.Socket;<a name="line.8"></a>
+<span class="sourceLineNo">009</span>import java.net.SocketException;<a name="line.9"></a>
+<span class="sourceLineNo">010</span>import java.nio.channels.ClosedByInterruptException;<a name="line.10"></a>
+<span class="sourceLineNo">011</span>import java.util.ArrayList;<a name="line.11"></a>
+<span class="sourceLineNo">012</span>import java.util.concurrent.Semaphore;<a name="line.12"></a>
+<span class="sourceLineNo">013</span><a name="line.13"></a>
+<span class="sourceLineNo">014</span>import org.apache.log4j.Logger;<a name="line.14"></a>
+<span class="sourceLineNo">015</span><a name="line.15"></a>
+<span class="sourceLineNo">016</span>import edu.caltech.nanodb.expressions.TupleLiteral;<a name="line.16"></a>
+<span class="sourceLineNo">017</span>import edu.caltech.nanodb.queryeval.PrettyTuplePrinter;<a name="line.17"></a>
+<span class="sourceLineNo">018</span>import edu.caltech.nanodb.relations.Schema;<a name="line.18"></a>
+<span class="sourceLineNo">019</span>import edu.caltech.nanodb.relations.Tuple;<a name="line.19"></a>
+<span class="sourceLineNo">020</span>import edu.caltech.nanodb.server.CommandState;<a name="line.20"></a>
+<span class="sourceLineNo">021</span><a name="line.21"></a>
+<span class="sourceLineNo">022</span><a name="line.22"></a>
+<span class="sourceLineNo">023</span>/**<a name="line.23"></a>
+<span class="sourceLineNo">024</span> * This class represents<a name="line.24"></a>
+<span class="sourceLineNo">025</span> *<a name="line.25"></a>
+<span class="sourceLineNo">026</span> */<a name="line.26"></a>
+<span class="sourceLineNo">027</span>public class SharedClientState {<a name="line.27"></a>
+<span class="sourceLineNo">028</span>    private static Logger logger = Logger.getLogger(SharedClientState.class);<a name="line.28"></a>
+<span class="sourceLineNo">029</span><a name="line.29"></a>
+<span class="sourceLineNo">030</span><a name="line.30"></a>
+<span class="sourceLineNo">031</span>    private Socket socket;<a name="line.31"></a>
+<span class="sourceLineNo">032</span><a name="line.32"></a>
+<span class="sourceLineNo">033</span><a name="line.33"></a>
+<span class="sourceLineNo">034</span>    private ObjectInputStream objectInput;<a name="line.34"></a>
+<span class="sourceLineNo">035</span><a name="line.35"></a>
+<span class="sourceLineNo">036</span><a name="line.36"></a>
+<span class="sourceLineNo">037</span>    private Receiver receiver;<a name="line.37"></a>
+<span class="sourceLineNo">038</span><a name="line.38"></a>
+<span class="sourceLineNo">039</span><a name="line.39"></a>
+<span class="sourceLineNo">040</span>    /**<a name="line.40"></a>
+<span class="sourceLineNo">041</span>     * This thread receives data from the server asynchronously, and prints<a name="line.41"></a>
+<span class="sourceLineNo">042</span>     * out whatever it receives.<a name="line.42"></a>
+<span class="sourceLineNo">043</span>     */<a name="line.43"></a>
+<span class="sourceLineNo">044</span>    private Thread receiverThread;<a name="line.44"></a>
+<span class="sourceLineNo">045</span><a name="line.45"></a>
+<span class="sourceLineNo">046</span><a name="line.46"></a>
+<span class="sourceLineNo">047</span>    private PrintStream out;<a name="line.47"></a>
+<span class="sourceLineNo">048</span><a name="line.48"></a>
+<span class="sourceLineNo">049</span><a name="line.49"></a>
+<span class="sourceLineNo">050</span>    private boolean printTuples;<a name="line.50"></a>
+<span class="sourceLineNo">051</span><a name="line.51"></a>
+<span class="sourceLineNo">052</span><a name="line.52"></a>
+<span class="sourceLineNo">053</span>    private Semaphore semCommandDone;<a name="line.53"></a>
+<span class="sourceLineNo">054</span><a name="line.54"></a>
+<span class="sourceLineNo">055</span><a name="line.55"></a>
+<span class="sourceLineNo">056</span>    private Schema schema;<a name="line.56"></a>
+<span class="sourceLineNo">057</span><a name="line.57"></a>
+<span class="sourceLineNo">058</span><a name="line.58"></a>
+<span class="sourceLineNo">059</span>    private ArrayList&lt;TupleLiteral&gt; tuples;<a name="line.59"></a>
+<span class="sourceLineNo">060</span><a name="line.60"></a>
+<span class="sourceLineNo">061</span><a name="line.61"></a>
+<span class="sourceLineNo">062</span>    /**<a name="line.62"></a>
+<span class="sourceLineNo">063</span>     * This stream is used to send objects (commands, specifically) to the<a name="line.63"></a>
+<span class="sourceLineNo">064</span>     */<a name="line.64"></a>
+<span class="sourceLineNo">065</span>    private ObjectOutputStream objectOutput;<a name="line.65"></a>
+<span class="sourceLineNo">066</span><a name="line.66"></a>
+<span class="sourceLineNo">067</span><a name="line.67"></a>
+<span class="sourceLineNo">068</span>    private class Receiver implements Runnable {<a name="line.68"></a>
+<span class="sourceLineNo">069</span><a name="line.69"></a>
+<span class="sourceLineNo">070</span>        private PrintStream out;<a name="line.70"></a>
+<span class="sourceLineNo">071</span><a name="line.71"></a>
+<span class="sourceLineNo">072</span><a name="line.72"></a>
+<span class="sourceLineNo">073</span>        private boolean done;<a name="line.73"></a>
+<span class="sourceLineNo">074</span><a name="line.74"></a>
+<span class="sourceLineNo">075</span><a name="line.75"></a>
+<span class="sourceLineNo">076</span>        public Receiver(PrintStream out) {<a name="line.76"></a>
+<span class="sourceLineNo">077</span>            this.out = out;<a name="line.77"></a>
+<span class="sourceLineNo">078</span>        }<a name="line.78"></a>
+<span class="sourceLineNo">079</span><a name="line.79"></a>
+<span class="sourceLineNo">080</span><a name="line.80"></a>
+<span class="sourceLineNo">081</span>        public void run() {<a name="line.81"></a>
+<span class="sourceLineNo">082</span>            PrettyTuplePrinter tuplePrinter = null;<a name="line.82"></a>
+<span class="sourceLineNo">083</span><a name="line.83"></a>
+<span class="sourceLineNo">084</span>            done = false;<a name="line.84"></a>
+<span class="sourceLineNo">085</span>            while (true) {<a name="line.85"></a>
+<span class="sourceLineNo">086</span>                try {<a name="line.86"></a>
+<span class="sourceLineNo">087</span>                    Object obj = objectInput.readObject();<a name="line.87"></a>
+<span class="sourceLineNo">088</span>                    if (obj instanceof String) {<a name="line.88"></a>
+<span class="sourceLineNo">089</span>                        // Just print strings to the console<a name="line.89"></a>
+<span class="sourceLineNo">090</span>                        System.out.print(obj);<a name="line.90"></a>
+<span class="sourceLineNo">091</span>                    }<a name="line.91"></a>
+<span class="sourceLineNo">092</span>                    else if (obj instanceof Schema) {<a name="line.92"></a>
+<span class="sourceLineNo">093</span>                        tuplePrinter = new PrettyTuplePrinter(out);<a name="line.93"></a>
+<span class="sourceLineNo">094</span>                        tuplePrinter.setSchema((Schema) obj);<a name="line.94"></a>
+<span class="sourceLineNo">095</span>                    }<a name="line.95"></a>
+<span class="sourceLineNo">096</span>                    else if (obj instanceof Tuple) {<a name="line.96"></a>
+<span class="sourceLineNo">097</span>                        tuplePrinter.process((Tuple) obj);<a name="line.97"></a>
+<span class="sourceLineNo">098</span>                    }<a name="line.98"></a>
+<span class="sourceLineNo">099</span>                    else if (obj instanceof Throwable) {<a name="line.99"></a>
+<span class="sourceLineNo">100</span>                        Throwable t = (Throwable) obj;<a name="line.100"></a>
+<span class="sourceLineNo">101</span>                        t.printStackTrace(System.out);<a name="line.101"></a>
+<span class="sourceLineNo">102</span>                    }<a name="line.102"></a>
+<span class="sourceLineNo">103</span>                    else if (obj instanceof CommandState) {<a name="line.103"></a>
+<span class="sourceLineNo">104</span>                        CommandState state = (CommandState) obj;<a name="line.104"></a>
+<span class="sourceLineNo">105</span>                        if (state == CommandState.COMMAND_COMPLETED) {<a name="line.105"></a>
+<span class="sourceLineNo">106</span>                            if (tuplePrinter != null) {<a name="line.106"></a>
+<span class="sourceLineNo">107</span>                                tuplePrinter.finish();<a name="line.107"></a>
+<span class="sourceLineNo">108</span>                                tuplePrinter = null;<a name="line.108"></a>
+<span class="sourceLineNo">109</span>                            }<a name="line.109"></a>
+<span class="sourceLineNo">110</span><a name="line.110"></a>
+<span class="sourceLineNo">111</span>                            // Signal that the command is completed.<a name="line.111"></a>
+<span class="sourceLineNo">112</span>                            semCommandDone.release();<a name="line.112"></a>
+<span class="sourceLineNo">113</span>                        }<a name="line.113"></a>
+<span class="sourceLineNo">114</span>                    }<a name="line.114"></a>
+<span class="sourceLineNo">115</span>                    else {<a name="line.115"></a>
+<span class="sourceLineNo">116</span>                        // TODO:  Try to print...<a name="line.116"></a>
+<span class="sourceLineNo">117</span>                        System.out.println(obj);<a name="line.117"></a>
+<span class="sourceLineNo">118</span>                    }<a name="line.118"></a>
+<span class="sourceLineNo">119</span>                } catch (EOFException e) {<a name="line.119"></a>
+<span class="sourceLineNo">120</span>                    System.out.println("Connection was closed by the server.");<a name="line.120"></a>
+<span class="sourceLineNo">121</span>                    break;<a name="line.121"></a>
+<span class="sourceLineNo">122</span>                } catch (SocketException e) {<a name="line.122"></a>
+<span class="sourceLineNo">123</span>                    System.out.println("Connection was closed by the server.");<a name="line.123"></a>
+<span class="sourceLineNo">124</span>                    break;<a name="line.124"></a>
+<span class="sourceLineNo">125</span>                } catch (ClosedByInterruptException e) {<a name="line.125"></a>
+<span class="sourceLineNo">126</span>                    System.out.println("Thread was interrupted during an IO operation.");<a name="line.126"></a>
+<span class="sourceLineNo">127</span>                    break;<a name="line.127"></a>
+<span class="sourceLineNo">128</span>                } catch (Exception e) {<a name="line.128"></a>
+<span class="sourceLineNo">129</span>                    System.out.println("Exception occurred:");<a name="line.129"></a>
+<span class="sourceLineNo">130</span>                    e.printStackTrace(System.out);<a name="line.130"></a>
+<span class="sourceLineNo">131</span>                }<a name="line.131"></a>
+<span class="sourceLineNo">132</span>            }<a name="line.132"></a>
+<span class="sourceLineNo">133</span>        }<a name="line.133"></a>
+<span class="sourceLineNo">134</span><a name="line.134"></a>
+<span class="sourceLineNo">135</span><a name="line.135"></a>
+<span class="sourceLineNo">136</span>        public void shutdown() {<a name="line.136"></a>
+<span class="sourceLineNo">137</span>            done = true;<a name="line.137"></a>
+<span class="sourceLineNo">138</span>        }<a name="line.138"></a>
+<span class="sourceLineNo">139</span>    }<a name="line.139"></a>
+<span class="sourceLineNo">140</span><a name="line.140"></a>
+<span class="sourceLineNo">141</span><a name="line.141"></a>
+<span class="sourceLineNo">142</span>    public SharedClientState(PrintStream out, boolean printTuples) {<a name="line.142"></a>
+<span class="sourceLineNo">143</span>        this.out = out;<a name="line.143"></a>
+<span class="sourceLineNo">144</span>        this.printTuples = printTuples;<a name="line.144"></a>
+<span class="sourceLineNo">145</span>    }<a name="line.145"></a>
+<span class="sourceLineNo">146</span><a name="line.146"></a>
+<span class="sourceLineNo">147</span><a name="line.147"></a>
+<span class="sourceLineNo">148</span>    public void connect(String hostname, int port) throws IOException {<a name="line.148"></a>
+<span class="sourceLineNo">149</span>        // Try to establish a connection to the shared database server.<a name="line.149"></a>
+<span class="sourceLineNo">150</span>        socket = new Socket(hostname, port);<a name="line.150"></a>
+<span class="sourceLineNo">151</span>        objectOutput = new ObjectOutputStream(socket.getOutputStream());<a name="line.151"></a>
+<span class="sourceLineNo">152</span>        objectInput = new ObjectInputStream(socket.getInputStream());<a name="line.152"></a>
+<span class="sourceLineNo">153</span><a name="line.153"></a>
+<span class="sourceLineNo">154</span>        // A semaphore to synchronize the receiver with the code that<a name="line.154"></a>
+<span class="sourceLineNo">155</span>        // dispatches commands, so that we don't return from dispatching a<a name="line.155"></a>
+<span class="sourceLineNo">156</span>        // command until the server says the command is finished.<a name="line.156"></a>
+<span class="sourceLineNo">157</span>        semCommandDone = new Semaphore(0);<a name="line.157"></a>
+<span class="sourceLineNo">158</span><a name="line.158"></a>
+<span class="sourceLineNo">159</span>        // Start up the receiver thread that will print out whatever comes<a name="line.159"></a>
+<span class="sourceLineNo">160</span>        // across the wire.<a name="line.160"></a>
+<span class="sourceLineNo">161</span>        receiver = new Receiver(System.out);<a name="line.161"></a>
+<span class="sourceLineNo">162</span>        receiverThread = new Thread(receiver);<a name="line.162"></a>
+<span class="sourceLineNo">163</span>        receiverThread.start();<a name="line.163"></a>
+<span class="sourceLineNo">164</span>    }<a name="line.164"></a>
+<span class="sourceLineNo">165</span><a name="line.165"></a>
+<span class="sourceLineNo">166</span><a name="line.166"></a>
+<span class="sourceLineNo">167</span>    public void doCommand(String commandString) throws Exception {<a name="line.167"></a>
+<span class="sourceLineNo">168</span>        schema = null;<a name="line.168"></a>
+<span class="sourceLineNo">169</span>        tuples.clear();<a name="line.169"></a>
+<span class="sourceLineNo">170</span><a name="line.170"></a>
+<span class="sourceLineNo">171</span>        // Send the command to the server!<a name="line.171"></a>
+<span class="sourceLineNo">172</span>        objectOutput.writeObject(commandString);<a name="line.172"></a>
+<span class="sourceLineNo">173</span><a name="line.173"></a>
+<span class="sourceLineNo">174</span>        // Wait for the command to be completed.<a name="line.174"></a>
+<span class="sourceLineNo">175</span>        semCommandDone.acquire();<a name="line.175"></a>
+<span class="sourceLineNo">176</span>    }<a name="line.176"></a>
+<span class="sourceLineNo">177</span><a name="line.177"></a>
+<span class="sourceLineNo">178</span><a name="line.178"></a>
+<span class="sourceLineNo">179</span>    public void disconnect() throws IOException {<a name="line.179"></a>
+<span class="sourceLineNo">180</span>        receiver.shutdown();<a name="line.180"></a>
+<span class="sourceLineNo">181</span>        receiverThread.interrupt();<a name="line.181"></a>
+<span class="sourceLineNo">182</span><a name="line.182"></a>
+<span class="sourceLineNo">183</span>        objectInput.close();<a name="line.183"></a>
+<span class="sourceLineNo">184</span>        objectOutput.close();<a name="line.184"></a>
+<span class="sourceLineNo">185</span>        socket.close();<a name="line.185"></a>
+<span class="sourceLineNo">186</span>    }<a name="line.186"></a>
+<span class="sourceLineNo">187</span>}<a name="line.187"></a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre>
+</div>
+</body>
+</html>

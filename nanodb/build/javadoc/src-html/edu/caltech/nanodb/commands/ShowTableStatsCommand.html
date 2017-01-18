@@ -1,0 +1,131 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<title>Source code</title>
+<link rel="stylesheet" type="text/css" href="../../../../../stylesheet.css" title="Style">
+</head>
+<body>
+<div class="sourceContainer">
+<pre><span class="sourceLineNo">001</span>package edu.caltech.nanodb.commands;<a name="line.1"></a>
+<span class="sourceLineNo">002</span><a name="line.2"></a>
+<span class="sourceLineNo">003</span><a name="line.3"></a>
+<span class="sourceLineNo">004</span>import java.io.IOException;<a name="line.4"></a>
+<span class="sourceLineNo">005</span><a name="line.5"></a>
+<span class="sourceLineNo">006</span>import edu.caltech.nanodb.expressions.ColumnName;<a name="line.6"></a>
+<span class="sourceLineNo">007</span>import edu.caltech.nanodb.queryeval.ColumnStats;<a name="line.7"></a>
+<span class="sourceLineNo">008</span>import edu.caltech.nanodb.queryeval.TableStats;<a name="line.8"></a>
+<span class="sourceLineNo">009</span>import edu.caltech.nanodb.relations.TableInfo;<a name="line.9"></a>
+<span class="sourceLineNo">010</span>import edu.caltech.nanodb.relations.TableSchema;<a name="line.10"></a>
+<span class="sourceLineNo">011</span>import edu.caltech.nanodb.server.NanoDBServer;<a name="line.11"></a>
+<span class="sourceLineNo">012</span>import edu.caltech.nanodb.storage.StorageManager;<a name="line.12"></a>
+<span class="sourceLineNo">013</span>import edu.caltech.nanodb.storage.TableManager;<a name="line.13"></a>
+<span class="sourceLineNo">014</span><a name="line.14"></a>
+<span class="sourceLineNo">015</span><a name="line.15"></a>
+<span class="sourceLineNo">016</span>/**<a name="line.16"></a>
+<span class="sourceLineNo">017</span> * Implements the "SHOW TABLE t STATS" command.<a name="line.17"></a>
+<span class="sourceLineNo">018</span> */<a name="line.18"></a>
+<span class="sourceLineNo">019</span>public class ShowTableStatsCommand extends Command {<a name="line.19"></a>
+<span class="sourceLineNo">020</span><a name="line.20"></a>
+<span class="sourceLineNo">021</span>    /** The name of the table whose statistics to print out. */<a name="line.21"></a>
+<span class="sourceLineNo">022</span>    private String tableName;<a name="line.22"></a>
+<span class="sourceLineNo">023</span><a name="line.23"></a>
+<span class="sourceLineNo">024</span><a name="line.24"></a>
+<span class="sourceLineNo">025</span>    public ShowTableStatsCommand(String tableName) {<a name="line.25"></a>
+<span class="sourceLineNo">026</span>        super(Command.Type.UTILITY);<a name="line.26"></a>
+<span class="sourceLineNo">027</span>        this.tableName = tableName;<a name="line.27"></a>
+<span class="sourceLineNo">028</span>    }<a name="line.28"></a>
+<span class="sourceLineNo">029</span><a name="line.29"></a>
+<span class="sourceLineNo">030</span><a name="line.30"></a>
+<span class="sourceLineNo">031</span>    @Override<a name="line.31"></a>
+<span class="sourceLineNo">032</span>    public void execute(NanoDBServer server) throws ExecutionException {<a name="line.32"></a>
+<span class="sourceLineNo">033</span>        try {<a name="line.33"></a>
+<span class="sourceLineNo">034</span>            StorageManager storageManager = server.getStorageManager();<a name="line.34"></a>
+<span class="sourceLineNo">035</span>            TableManager tableManager = storageManager.getTableManager();<a name="line.35"></a>
+<span class="sourceLineNo">036</span>            TableInfo tableInfo = tableManager.openTable(tableName);<a name="line.36"></a>
+<span class="sourceLineNo">037</span><a name="line.37"></a>
+<span class="sourceLineNo">038</span>            TableSchema schema = tableInfo.getSchema();<a name="line.38"></a>
+<span class="sourceLineNo">039</span>            TableStats stats = tableInfo.getStats();<a name="line.39"></a>
+<span class="sourceLineNo">040</span>            out.printf("Statistics for table %s:%n", tableName);<a name="line.40"></a>
+<span class="sourceLineNo">041</span>            out.printf("\t%d tuples, %d data pages, avg tuple size is %.1f bytes%n",<a name="line.41"></a>
+<span class="sourceLineNo">042</span>                stats.numTuples, stats.numDataPages, stats.avgTupleSize);<a name="line.42"></a>
+<span class="sourceLineNo">043</span><a name="line.43"></a>
+<span class="sourceLineNo">044</span>            int numCols = schema.numColumns();<a name="line.44"></a>
+<span class="sourceLineNo">045</span>            for (int i = 0; i &lt; numCols; i++) {<a name="line.45"></a>
+<span class="sourceLineNo">046</span>                ColumnName colName = schema.getColumnInfo(i).getColumnName();<a name="line.46"></a>
+<span class="sourceLineNo">047</span>                ColumnStats colStat = stats.getColumnStats(i);<a name="line.47"></a>
+<span class="sourceLineNo">048</span><a name="line.48"></a>
+<span class="sourceLineNo">049</span>                out.printf("\tColumn %s:  %d unique values, %d null " +<a name="line.49"></a>
+<span class="sourceLineNo">050</span>                    "values, min = %s, max = %s%n", colName.getColumnName(),<a name="line.50"></a>
+<span class="sourceLineNo">051</span>                    colStat.getNumUniqueValues(), colStat.getNumNullValues(),<a name="line.51"></a>
+<span class="sourceLineNo">052</span>                    colStat.getMinValue(), colStat.getMaxValue());<a name="line.52"></a>
+<span class="sourceLineNo">053</span>            }<a name="line.53"></a>
+<span class="sourceLineNo">054</span>        }<a name="line.54"></a>
+<span class="sourceLineNo">055</span>        catch (IOException e) {<a name="line.55"></a>
+<span class="sourceLineNo">056</span>            throw new ExecutionException(e);<a name="line.56"></a>
+<span class="sourceLineNo">057</span>        }<a name="line.57"></a>
+<span class="sourceLineNo">058</span>    }<a name="line.58"></a>
+<span class="sourceLineNo">059</span>}<a name="line.59"></a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,132 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<title>Source code</title>
+<link rel="stylesheet" type="text/css" href="../../../../../stylesheet.css" title="Style">
+</head>
+<body>
+<div class="sourceContainer">
+<pre><span class="sourceLineNo">001</span>package edu.caltech.nanodb.storage;<a name="line.1"></a>
+<span class="sourceLineNo">002</span><a name="line.2"></a>
+<span class="sourceLineNo">003</span>import java.io.IOException;<a name="line.3"></a>
+<span class="sourceLineNo">004</span>import java.util.List;<a name="line.4"></a>
+<span class="sourceLineNo">005</span><a name="line.5"></a>
+<span class="sourceLineNo">006</span>import edu.caltech.nanodb.expressions.Expression;<a name="line.6"></a>
+<span class="sourceLineNo">007</span>import edu.caltech.nanodb.relations.Tuple;<a name="line.7"></a>
+<span class="sourceLineNo">008</span><a name="line.8"></a>
+<span class="sourceLineNo">009</span><a name="line.9"></a>
+<span class="sourceLineNo">010</span>/**<a name="line.10"></a>
+<span class="sourceLineNo">011</span> * This interface extends the {@link TupleFile} interface, adding operations<a name="line.11"></a>
+<span class="sourceLineNo">012</span> * that can be provided on files of tuples that are hashed on a specific key.<a name="line.12"></a>
+<span class="sourceLineNo">013</span> * The key used to hash tuples is returned by the {@link #getKeySpec} method.<a name="line.13"></a>
+<span class="sourceLineNo">014</span> */<a name="line.14"></a>
+<span class="sourceLineNo">015</span>public interface HashedTupleFile extends TupleFile {<a name="line.15"></a>
+<span class="sourceLineNo">016</span>    /**<a name="line.16"></a>
+<span class="sourceLineNo">017</span>     * Returns the column(s) that comprise the hash key in this tuple file.<a name="line.17"></a>
+<span class="sourceLineNo">018</span>     *<a name="line.18"></a>
+<span class="sourceLineNo">019</span>     * @return the column(s) that comprise the hash key in this tuple file.<a name="line.19"></a>
+<span class="sourceLineNo">020</span>     */<a name="line.20"></a>
+<span class="sourceLineNo">021</span>    List&lt;Expression&gt; getKeySpec();<a name="line.21"></a>
+<span class="sourceLineNo">022</span><a name="line.22"></a>
+<span class="sourceLineNo">023</span><a name="line.23"></a>
+<span class="sourceLineNo">024</span>    /**<a name="line.24"></a>
+<span class="sourceLineNo">025</span>     * Returns the first tuple in the file that has the same hash-key values,<a name="line.25"></a>
+<span class="sourceLineNo">026</span>     * or {@code null} if there are no tuples with this hash-key value in<a name="line.26"></a>
+<span class="sourceLineNo">027</span>     * the tuple file.<a name="line.27"></a>
+<span class="sourceLineNo">028</span>     *<a name="line.28"></a>
+<span class="sourceLineNo">029</span>     * @param hashKey the tuple to search for<a name="line.29"></a>
+<span class="sourceLineNo">030</span>     *<a name="line.30"></a>
+<span class="sourceLineNo">031</span>     * @return The first tuple in the file with the same hash-key values, or<a name="line.31"></a>
+<span class="sourceLineNo">032</span>     *         {@code null} if the file contains no files with the specified<a name="line.32"></a>
+<span class="sourceLineNo">033</span>     *         search key value.  This tuple will actually be backed by the<a name="line.33"></a>
+<span class="sourceLineNo">034</span>     *         tuple file, so typically it will be a subclass of<a name="line.34"></a>
+<span class="sourceLineNo">035</span>     *         {@link PageTuple}.<a name="line.35"></a>
+<span class="sourceLineNo">036</span>     *<a name="line.36"></a>
+<span class="sourceLineNo">037</span>     * @throws IOException if an IO error occurs during the operation<a name="line.37"></a>
+<span class="sourceLineNo">038</span>     */<a name="line.38"></a>
+<span class="sourceLineNo">039</span>    Tuple findFirstTupleEquals(Tuple hashKey) throws IOException;<a name="line.39"></a>
+<span class="sourceLineNo">040</span><a name="line.40"></a>
+<span class="sourceLineNo">041</span><a name="line.41"></a>
+<span class="sourceLineNo">042</span>    /**<a name="line.42"></a>
+<span class="sourceLineNo">043</span>     * Returns the next entry in the index that has the same hash-key value,<a name="line.43"></a>
+<span class="sourceLineNo">044</span>     * or {@code null} if there are no more entries with this hash-key value<a name="line.44"></a>
+<span class="sourceLineNo">045</span>     * in the tuple file.<a name="line.45"></a>
+<span class="sourceLineNo">046</span>     *<a name="line.46"></a>
+<span class="sourceLineNo">047</span>     * @param prevTuple The tuple from which to resume the search for the next<a name="line.47"></a>
+<span class="sourceLineNo">048</span>     *        tuple with the same hash-key values.  This should be a tuple<a name="line.48"></a>
+<span class="sourceLineNo">049</span>     *        returned by a previous call to {@link #findFirstTupleEquals} or<a name="line.49"></a>
+<span class="sourceLineNo">050</span>     *        {@link #findNextTupleEquals}; using any other tuple would be an<a name="line.50"></a>
+<span class="sourceLineNo">051</span>     *        error.<a name="line.51"></a>
+<span class="sourceLineNo">052</span>     *<a name="line.52"></a>
+<span class="sourceLineNo">053</span>     * @return The next tuple in the file with the same hash-key values, or<a name="line.53"></a>
+<span class="sourceLineNo">054</span>     *         {@code null} if there are no more entries with this hash-key<a name="line.54"></a>
+<span class="sourceLineNo">055</span>     *         value in the file.<a name="line.55"></a>
+<span class="sourceLineNo">056</span>     *<a name="line.56"></a>
+<span class="sourceLineNo">057</span>     * @throws IOException if an IO error occurs during the operation<a name="line.57"></a>
+<span class="sourceLineNo">058</span>     */<a name="line.58"></a>
+<span class="sourceLineNo">059</span>    Tuple findNextTupleEquals(Tuple prevTuple) throws IOException;<a name="line.59"></a>
+<span class="sourceLineNo">060</span>}<a name="line.60"></a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre>
+</div>
+</body>
+</html>

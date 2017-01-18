@@ -1,0 +1,726 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<title>Source code</title>
+<link rel="stylesheet" type="text/css" href="../../../../../stylesheet.css" title="Style">
+</head>
+<body>
+<div class="sourceContainer">
+<pre><span class="sourceLineNo">001</span>package edu.caltech.nanodb.queryast;<a name="line.1"></a>
+<span class="sourceLineNo">002</span><a name="line.2"></a>
+<span class="sourceLineNo">003</span><a name="line.3"></a>
+<span class="sourceLineNo">004</span>import java.io.IOException;<a name="line.4"></a>
+<span class="sourceLineNo">005</span>import java.util.ArrayList;<a name="line.5"></a>
+<span class="sourceLineNo">006</span>import java.util.HashMap;<a name="line.6"></a>
+<span class="sourceLineNo">007</span>import java.util.LinkedHashMap;<a name="line.7"></a>
+<span class="sourceLineNo">008</span>import java.util.List;<a name="line.8"></a>
+<span class="sourceLineNo">009</span>import java.util.Map;<a name="line.9"></a>
+<span class="sourceLineNo">010</span>import java.util.Set;<a name="line.10"></a>
+<span class="sourceLineNo">011</span>import java.util.SortedMap;<a name="line.11"></a>
+<span class="sourceLineNo">012</span><a name="line.12"></a>
+<span class="sourceLineNo">013</span>import org.apache.log4j.Logger;<a name="line.13"></a>
+<span class="sourceLineNo">014</span><a name="line.14"></a>
+<span class="sourceLineNo">015</span>import edu.caltech.nanodb.expressions.*;<a name="line.15"></a>
+<span class="sourceLineNo">016</span>import edu.caltech.nanodb.relations.*;<a name="line.16"></a>
+<span class="sourceLineNo">017</span>import edu.caltech.nanodb.storage.TableManager;<a name="line.17"></a>
+<span class="sourceLineNo">018</span><a name="line.18"></a>
+<span class="sourceLineNo">019</span><a name="line.19"></a>
+<span class="sourceLineNo">020</span>/**<a name="line.20"></a>
+<span class="sourceLineNo">021</span> * This class represents a single &lt;tt&gt;SELECT ...&lt;/tt&gt; statement or clause.<a name="line.21"></a>
+<span class="sourceLineNo">022</span> * &lt;tt&gt;SELECT&lt;/tt&gt; statements can appear as clauses within other expressions,<a name="line.22"></a>
+<span class="sourceLineNo">023</span> * so the class is written to be used easily within other classes.<a name="line.23"></a>
+<span class="sourceLineNo">024</span> */<a name="line.24"></a>
+<span class="sourceLineNo">025</span>public class SelectClause {<a name="line.25"></a>
+<span class="sourceLineNo">026</span><a name="line.26"></a>
+<span class="sourceLineNo">027</span>    /** A logging object for reporting anything interesting that happens. **/<a name="line.27"></a>
+<span class="sourceLineNo">028</span>    private static Logger logger = Logger.getLogger(SelectClause.class);<a name="line.28"></a>
+<span class="sourceLineNo">029</span><a name="line.29"></a>
+<span class="sourceLineNo">030</span><a name="line.30"></a>
+<span class="sourceLineNo">031</span>    /**<a name="line.31"></a>
+<span class="sourceLineNo">032</span>     * The parent of this select-clause, if it is a nested subquery;<a name="line.32"></a>
+<span class="sourceLineNo">033</span>     * {@code null} otherwise.<a name="line.33"></a>
+<span class="sourceLineNo">034</span>     */<a name="line.34"></a>
+<span class="sourceLineNo">035</span>    private SelectClause parentSelect;<a name="line.35"></a>
+<span class="sourceLineNo">036</span><a name="line.36"></a>
+<span class="sourceLineNo">037</span><a name="line.37"></a>
+<span class="sourceLineNo">038</span>    /**<a name="line.38"></a>
+<span class="sourceLineNo">039</span>     * An ordered collection of &lt;tt&gt;WITH&lt;/tt&gt; clauses that are part of the<a name="line.39"></a>
+<span class="sourceLineNo">040</span>     * &lt;tt&gt;SELECT&lt;/tt&gt; clause.  These are ordered because &lt;tt&gt;WITH&lt;/tt&gt;<a name="line.40"></a>
+<span class="sourceLineNo">041</span>     * clauses are allowed to refer to previous &lt;tt&gt;WITH&lt;/tt&gt; clauses.<a name="line.41"></a>
+<span class="sourceLineNo">042</span>     */<a name="line.42"></a>
+<span class="sourceLineNo">043</span>    private LinkedHashMap&lt;String, SelectClause&gt; withClauses =<a name="line.43"></a>
+<span class="sourceLineNo">044</span>        new LinkedHashMap&lt;&gt;();<a name="line.44"></a>
+<span class="sourceLineNo">045</span><a name="line.45"></a>
+<span class="sourceLineNo">046</span><a name="line.46"></a>
+<span class="sourceLineNo">047</span>    /**<a name="line.47"></a>
+<span class="sourceLineNo">048</span>     * This flag indicates whether the &lt;tt&gt;SELECT&lt;/tt&gt; expression should<a name="line.48"></a>
+<span class="sourceLineNo">049</span>     * generate duplicate rows, or whether it should simply produce distinct<a name="line.49"></a>
+<span class="sourceLineNo">050</span>     * or unique rows.<a name="line.50"></a>
+<span class="sourceLineNo">051</span>     */<a name="line.51"></a>
+<span class="sourceLineNo">052</span>    private boolean distinct = false;<a name="line.52"></a>
+<span class="sourceLineNo">053</span><a name="line.53"></a>
+<span class="sourceLineNo">054</span><a name="line.54"></a>
+<span class="sourceLineNo">055</span>    /**<a name="line.55"></a>
+<span class="sourceLineNo">056</span>     * The specification of values to be produced by the &lt;tt&gt;SELECT&lt;/tt&gt;<a name="line.56"></a>
+<span class="sourceLineNo">057</span>     * clause.  These expressions comprise the Generalized Project operation<a name="line.57"></a>
+<span class="sourceLineNo">058</span>     * portion of the command.<a name="line.58"></a>
+<span class="sourceLineNo">059</span>     */<a name="line.59"></a>
+<span class="sourceLineNo">060</span>    private List&lt;SelectValue&gt; selectValues = new ArrayList&lt;&gt;();<a name="line.60"></a>
+<span class="sourceLineNo">061</span><a name="line.61"></a>
+<span class="sourceLineNo">062</span><a name="line.62"></a>
+<span class="sourceLineNo">063</span>    /**<a name="line.63"></a>
+<span class="sourceLineNo">064</span>     * This field holds a hierarchy of one or more base and derived relations<a name="line.64"></a>
+<span class="sourceLineNo">065</span>     * that produce the rows considered by this &lt;tt&gt;SELECT&lt;/tt&gt; clause.  If<a name="line.65"></a>
+<span class="sourceLineNo">066</span>     * the &lt;tt&gt;SELECT&lt;/tt&gt; expression has no &lt;tt&gt;FROM&lt;/tt&gt; clause, this field<a name="line.66"></a>
+<span class="sourceLineNo">067</span>     * will be &lt;tt&gt;null&lt;/tt&gt;.<a name="line.67"></a>
+<span class="sourceLineNo">068</span>     */<a name="line.68"></a>
+<span class="sourceLineNo">069</span>    private FromClause fromClause = null;<a name="line.69"></a>
+<span class="sourceLineNo">070</span><a name="line.70"></a>
+<span class="sourceLineNo">071</span><a name="line.71"></a>
+<span class="sourceLineNo">072</span>    /**<a name="line.72"></a>
+<span class="sourceLineNo">073</span>     * If a &lt;tt&gt;WHERE&lt;/tt&gt; expression is specified, this field will refer to<a name="line.73"></a>
+<span class="sourceLineNo">074</span>     * the expression to be evaluated.<a name="line.74"></a>
+<span class="sourceLineNo">075</span>     */<a name="line.75"></a>
+<span class="sourceLineNo">076</span>    private Expression whereExpr = null;<a name="line.76"></a>
+<span class="sourceLineNo">077</span><a name="line.77"></a>
+<span class="sourceLineNo">078</span><a name="line.78"></a>
+<span class="sourceLineNo">079</span>    /**<a name="line.79"></a>
+<span class="sourceLineNo">080</span>     * This collection holds zero or more entries specifying &lt;tt&gt;GROUP BY&lt;/tt&gt;<a name="line.80"></a>
+<span class="sourceLineNo">081</span>     * values.  If the &lt;tt&gt;SELECT&lt;/tt&gt; expression has no &lt;tt&gt;GROUP BY&lt;/tt&gt;<a name="line.81"></a>
+<span class="sourceLineNo">082</span>     * clause, this collection will be empty.<a name="line.82"></a>
+<span class="sourceLineNo">083</span>     */<a name="line.83"></a>
+<span class="sourceLineNo">084</span>    private List&lt;Expression&gt; groupByExprs = new ArrayList&lt;&gt;();<a name="line.84"></a>
+<span class="sourceLineNo">085</span><a name="line.85"></a>
+<span class="sourceLineNo">086</span><a name="line.86"></a>
+<span class="sourceLineNo">087</span>    /**<a name="line.87"></a>
+<span class="sourceLineNo">088</span>     * If a &lt;tt&gt;HAVING&lt;/tt&gt; expression is specified, this field will refer to<a name="line.88"></a>
+<span class="sourceLineNo">089</span>     * the expression to be evaluated.<a name="line.89"></a>
+<span class="sourceLineNo">090</span>     */<a name="line.90"></a>
+<span class="sourceLineNo">091</span>    private Expression havingExpr = null;<a name="line.91"></a>
+<span class="sourceLineNo">092</span><a name="line.92"></a>
+<span class="sourceLineNo">093</span><a name="line.93"></a>
+<span class="sourceLineNo">094</span>    /**<a name="line.94"></a>
+<span class="sourceLineNo">095</span>     * This collection holds zero or more entries specifying &lt;tt&gt;ORDER BY&lt;/tt&gt;<a name="line.95"></a>
+<span class="sourceLineNo">096</span>     * values.  If the &lt;tt&gt;SELECT&lt;/tt&gt; expression has no &lt;tt&gt;ORDER BY&lt;/tt&gt;<a name="line.96"></a>
+<span class="sourceLineNo">097</span>     * clause, this collection will be empty.<a name="line.97"></a>
+<span class="sourceLineNo">098</span>     */<a name="line.98"></a>
+<span class="sourceLineNo">099</span>    private List&lt;OrderByExpression&gt; orderByExprs = new ArrayList&lt;&gt;();<a name="line.99"></a>
+<span class="sourceLineNo">100</span><a name="line.100"></a>
+<span class="sourceLineNo">101</span><a name="line.101"></a>
+<span class="sourceLineNo">102</span>    /**<a name="line.102"></a>
+<span class="sourceLineNo">103</span>     * The maximum number of rows that may be returned by the &lt;tt&gt;SELECT&lt;/tt&gt;<a name="line.103"></a>
+<span class="sourceLineNo">104</span>     * clause.  The default value of 0 means "no limit".<a name="line.104"></a>
+<span class="sourceLineNo">105</span>     */<a name="line.105"></a>
+<span class="sourceLineNo">106</span>    private int limit = 0;<a name="line.106"></a>
+<span class="sourceLineNo">107</span><a name="line.107"></a>
+<span class="sourceLineNo">108</span><a name="line.108"></a>
+<span class="sourceLineNo">109</span>    /**<a name="line.109"></a>
+<span class="sourceLineNo">110</span>     * The offset of the first row to return from the &lt;tt&gt;SELECT&lt;/tt&gt; clause.<a name="line.110"></a>
+<span class="sourceLineNo">111</span>     * Earlier rows will be computed but not returned.  The default value of 0<a name="line.111"></a>
+<span class="sourceLineNo">112</span>     * means "start with the first row."<a name="line.112"></a>
+<span class="sourceLineNo">113</span>     */<a name="line.113"></a>
+<span class="sourceLineNo">114</span>    private int offset = 0;<a name="line.114"></a>
+<span class="sourceLineNo">115</span><a name="line.115"></a>
+<span class="sourceLineNo">116</span><a name="line.116"></a>
+<span class="sourceLineNo">117</span>    /**<a name="line.117"></a>
+<span class="sourceLineNo">118</span>     * When preparing SQL commands for execution, this value is filled in with<a name="line.118"></a>
+<span class="sourceLineNo">119</span>     * the schema that this &lt;tt&gt;SELECT&lt;/tt&gt; clause produces.<a name="line.119"></a>
+<span class="sourceLineNo">120</span>     */<a name="line.120"></a>
+<span class="sourceLineNo">121</span>    private Schema resultSchema = null;<a name="line.121"></a>
+<span class="sourceLineNo">122</span><a name="line.122"></a>
+<span class="sourceLineNo">123</span><a name="line.123"></a>
+<span class="sourceLineNo">124</span>    /**<a name="line.124"></a>
+<span class="sourceLineNo">125</span>     * When preparing SQL commands for execution, this value is filled in with<a name="line.125"></a>
+<span class="sourceLineNo">126</span>     * the schema that this query's &lt;tt&gt;FROM&lt;/tt&gt; clause produces.<a name="line.126"></a>
+<span class="sourceLineNo">127</span>     */<a name="line.127"></a>
+<span class="sourceLineNo">128</span>    private Schema fromSchema = null;<a name="line.128"></a>
+<span class="sourceLineNo">129</span><a name="line.129"></a>
+<span class="sourceLineNo">130</span><a name="line.130"></a>
+<span class="sourceLineNo">131</span>    /**<a name="line.131"></a>
+<span class="sourceLineNo">132</span>     * If this query is correlated with one or more enclosing queries, this<a name="line.132"></a>
+<span class="sourceLineNo">133</span>     * will contain column names, and the corresponding references to the<a name="line.133"></a>
+<span class="sourceLineNo">134</span>     * enclosing queries.<a name="line.134"></a>
+<span class="sourceLineNo">135</span>     *<a name="line.135"></a>
+<span class="sourceLineNo">136</span>     * @design (Donnie) We need to know both the column names and the<a name="line.136"></a>
+<span class="sourceLineNo">137</span>     *         corresponding parent-queries that will generate those values,<a name="line.137"></a>
+<span class="sourceLineNo">138</span>     *         so that we can set up the execution plan properly.<a name="line.138"></a>
+<span class="sourceLineNo">139</span>     */<a name="line.139"></a>
+<span class="sourceLineNo">140</span>    private HashMap&lt;ColumnName, SelectClause&gt; correlatedWith = new HashMap&lt;&gt;();<a name="line.140"></a>
+<span class="sourceLineNo">141</span><a name="line.141"></a>
+<span class="sourceLineNo">142</span><a name="line.142"></a>
+<span class="sourceLineNo">143</span>    public void addWithClause(String name, SelectClause selClause) {<a name="line.143"></a>
+<span class="sourceLineNo">144</span>        withClauses.put(name, selClause);<a name="line.144"></a>
+<span class="sourceLineNo">145</span>    }<a name="line.145"></a>
+<span class="sourceLineNo">146</span><a name="line.146"></a>
+<span class="sourceLineNo">147</span><a name="line.147"></a>
+<span class="sourceLineNo">148</span>    /**<a name="line.148"></a>
+<span class="sourceLineNo">149</span>     * Mark the select clause's results as being distinct or not distinct.<a name="line.149"></a>
+<span class="sourceLineNo">150</span>     * This corresponds to whether the SQL command is<a name="line.150"></a>
+<span class="sourceLineNo">151</span>     * "&lt;tt&gt;SELECT [ALL] ...&lt;/tt&gt;" or "&lt;tt&gt;SELECT DISTINCT ...&lt;/tt&gt;".<a name="line.151"></a>
+<span class="sourceLineNo">152</span>     *<a name="line.152"></a>
+<span class="sourceLineNo">153</span>     * @param distinct If true, specifies that the results of this select<a name="line.153"></a>
+<span class="sourceLineNo">154</span>     *        clause are distinct.  If false, the results of the clause are<a name="line.154"></a>
+<span class="sourceLineNo">155</span>     *        not distinct.<a name="line.155"></a>
+<span class="sourceLineNo">156</span>     */<a name="line.156"></a>
+<span class="sourceLineNo">157</span>    public void setDistinct(boolean distinct) {<a name="line.157"></a>
+<span class="sourceLineNo">158</span>        this.distinct = distinct;<a name="line.158"></a>
+<span class="sourceLineNo">159</span>    }<a name="line.159"></a>
+<span class="sourceLineNo">160</span><a name="line.160"></a>
+<span class="sourceLineNo">161</span><a name="line.161"></a>
+<span class="sourceLineNo">162</span>    /**<a name="line.162"></a>
+<span class="sourceLineNo">163</span>     * Returns true if the select clause's results are to be distinct, or<a name="line.163"></a>
+<span class="sourceLineNo">164</span>     * false if the clause's results are not distinct.<a name="line.164"></a>
+<span class="sourceLineNo">165</span>     */<a name="line.165"></a>
+<span class="sourceLineNo">166</span>    public boolean isDistinct() {<a name="line.166"></a>
+<span class="sourceLineNo">167</span>        return distinct;<a name="line.167"></a>
+<span class="sourceLineNo">168</span>    }<a name="line.168"></a>
+<span class="sourceLineNo">169</span><a name="line.169"></a>
+<span class="sourceLineNo">170</span><a name="line.170"></a>
+<span class="sourceLineNo">171</span>    /**<a name="line.171"></a>
+<span class="sourceLineNo">172</span>     * Adds a specification to the set of values produced by this<a name="line.172"></a>
+<span class="sourceLineNo">173</span>     * &lt;tt&gt;SELECT&lt;/tt&gt; clause.  This method is called by the parser as a<a name="line.173"></a>
+<span class="sourceLineNo">174</span>     * &lt;tt&gt;SELECT&lt;/tt&gt; command (or subquery) is being parsed.<a name="line.174"></a>
+<span class="sourceLineNo">175</span>     */<a name="line.175"></a>
+<span class="sourceLineNo">176</span>    public void addSelectValue(SelectValue selectValue) {<a name="line.176"></a>
+<span class="sourceLineNo">177</span>        if (selectValue == null)<a name="line.177"></a>
+<span class="sourceLineNo">178</span>            throw new NullPointerException();<a name="line.178"></a>
+<span class="sourceLineNo">179</span><a name="line.179"></a>
+<span class="sourceLineNo">180</span>        selectValues.add(selectValue);<a name="line.180"></a>
+<span class="sourceLineNo">181</span>    }<a name="line.181"></a>
+<span class="sourceLineNo">182</span><a name="line.182"></a>
+<span class="sourceLineNo">183</span><a name="line.183"></a>
+<span class="sourceLineNo">184</span>    /**<a name="line.184"></a>
+<span class="sourceLineNo">185</span>     * Retrieves the select values for this select clause.<a name="line.185"></a>
+<span class="sourceLineNo">186</span>     *<a name="line.186"></a>
+<span class="sourceLineNo">187</span>     * @return the select values<a name="line.187"></a>
+<span class="sourceLineNo">188</span>     */<a name="line.188"></a>
+<span class="sourceLineNo">189</span>    public List&lt;SelectValue&gt; getSelectValues() {<a name="line.189"></a>
+<span class="sourceLineNo">190</span>        return selectValues;<a name="line.190"></a>
+<span class="sourceLineNo">191</span>    }<a name="line.191"></a>
+<span class="sourceLineNo">192</span><a name="line.192"></a>
+<span class="sourceLineNo">193</span><a name="line.193"></a>
+<span class="sourceLineNo">194</span>    public boolean isTrivialProject() {<a name="line.194"></a>
+<span class="sourceLineNo">195</span>        if (selectValues.size() == 1) {<a name="line.195"></a>
+<span class="sourceLineNo">196</span>            SelectValue selVal = selectValues.get(0);<a name="line.196"></a>
+<span class="sourceLineNo">197</span>            if (selVal.isWildcard() &amp;&amp; !selVal.getWildcard().isTableSpecified())<a name="line.197"></a>
+<span class="sourceLineNo">198</span>                return true;<a name="line.198"></a>
+<span class="sourceLineNo">199</span>        }<a name="line.199"></a>
+<span class="sourceLineNo">200</span>        return false;<a name="line.200"></a>
+<span class="sourceLineNo">201</span>    }<a name="line.201"></a>
+<span class="sourceLineNo">202</span><a name="line.202"></a>
+<span class="sourceLineNo">203</span><a name="line.203"></a>
+<span class="sourceLineNo">204</span>    /**<a name="line.204"></a>
+<span class="sourceLineNo">205</span>     * Returns the parent of this query if it is a subquery; {@code null}<a name="line.205"></a>
+<span class="sourceLineNo">206</span>     * otherwise.<a name="line.206"></a>
+<span class="sourceLineNo">207</span>     *<a name="line.207"></a>
+<span class="sourceLineNo">208</span>     * @return the parent of this query if it is a subquery; {@code null}<a name="line.208"></a>
+<span class="sourceLineNo">209</span>     *         otherwise.<a name="line.209"></a>
+<span class="sourceLineNo">210</span>     */<a name="line.210"></a>
+<span class="sourceLineNo">211</span>    public SelectClause getParentSelect() {<a name="line.211"></a>
+<span class="sourceLineNo">212</span>        return parentSelect;<a name="line.212"></a>
+<span class="sourceLineNo">213</span>    }<a name="line.213"></a>
+<span class="sourceLineNo">214</span><a name="line.214"></a>
+<span class="sourceLineNo">215</span><a name="line.215"></a>
+<span class="sourceLineNo">216</span>    /**<a name="line.216"></a>
+<span class="sourceLineNo">217</span>     * Sets the hierarchy of base and derived relations that produce the rows<a name="line.217"></a>
+<span class="sourceLineNo">218</span>     * considered by this &lt;tt&gt;SELECT&lt;/tt&gt; clause.<a name="line.218"></a>
+<span class="sourceLineNo">219</span>     */<a name="line.219"></a>
+<span class="sourceLineNo">220</span>    public void setFromClause(FromClause fromClause) {<a name="line.220"></a>
+<span class="sourceLineNo">221</span>        this.fromClause = fromClause;<a name="line.221"></a>
+<span class="sourceLineNo">222</span>    }<a name="line.222"></a>
+<span class="sourceLineNo">223</span><a name="line.223"></a>
+<span class="sourceLineNo">224</span><a name="line.224"></a>
+<span class="sourceLineNo">225</span>    /**<a name="line.225"></a>
+<span class="sourceLineNo">226</span>     * Retrieves the from clause for this select clause.  This can be<a name="line.226"></a>
+<span class="sourceLineNo">227</span>     * {@code null} if the query doesn't specify a FROM clause.<a name="line.227"></a>
+<span class="sourceLineNo">228</span>     *<a name="line.228"></a>
+<span class="sourceLineNo">229</span>     * @return the from clause<a name="line.229"></a>
+<span class="sourceLineNo">230</span>     */<a name="line.230"></a>
+<span class="sourceLineNo">231</span>    public FromClause getFromClause() {<a name="line.231"></a>
+<span class="sourceLineNo">232</span>        return fromClause;<a name="line.232"></a>
+<span class="sourceLineNo">233</span>    }<a name="line.233"></a>
+<span class="sourceLineNo">234</span><a name="line.234"></a>
+<span class="sourceLineNo">235</span><a name="line.235"></a>
+<span class="sourceLineNo">236</span>    /**<a name="line.236"></a>
+<span class="sourceLineNo">237</span>     * Returns the schema of the data produced by the FROM clause of this<a name="line.237"></a>
+<span class="sourceLineNo">238</span>     * query.  If the query has no FROM clause, this will be an empty schema.<a name="line.238"></a>
+<span class="sourceLineNo">239</span>     *<a name="line.239"></a>
+<span class="sourceLineNo">240</span>     * @return the schema produced by the FROM clause of this query, or an<a name="line.240"></a>
+<span class="sourceLineNo">241</span>     *         empty schema if the query has no FROM clause.<a name="line.241"></a>
+<span class="sourceLineNo">242</span>     */<a name="line.242"></a>
+<span class="sourceLineNo">243</span>    public Schema getFromSchema() {<a name="line.243"></a>
+<span class="sourceLineNo">244</span>        return fromSchema;<a name="line.244"></a>
+<span class="sourceLineNo">245</span>    }<a name="line.245"></a>
+<span class="sourceLineNo">246</span><a name="line.246"></a>
+<span class="sourceLineNo">247</span><a name="line.247"></a>
+<span class="sourceLineNo">248</span>    /**<a name="line.248"></a>
+<span class="sourceLineNo">249</span>     * Sets the expression for the &lt;tt&gt;WHERE&lt;/tt&gt; clause.  A {@code null}<a name="line.249"></a>
+<span class="sourceLineNo">250</span>     * value indicates that the &lt;tt&gt;SELECT&lt;/tt&gt; clause has no &lt;tt&gt;WHERE&lt;/tt&gt;<a name="line.250"></a>
+<span class="sourceLineNo">251</span>     * condition.<a name="line.251"></a>
+<span class="sourceLineNo">252</span>     */<a name="line.252"></a>
+<span class="sourceLineNo">253</span>    public void setWhereExpr(Expression whereExpr) {<a name="line.253"></a>
+<span class="sourceLineNo">254</span>        this.whereExpr = whereExpr;<a name="line.254"></a>
+<span class="sourceLineNo">255</span>    }<a name="line.255"></a>
+<span class="sourceLineNo">256</span><a name="line.256"></a>
+<span class="sourceLineNo">257</span><a name="line.257"></a>
+<span class="sourceLineNo">258</span>    /**<a name="line.258"></a>
+<span class="sourceLineNo">259</span>     * Retrieves the where clause from this from clause.<a name="line.259"></a>
+<span class="sourceLineNo">260</span>     *<a name="line.260"></a>
+<span class="sourceLineNo">261</span>     * @return the where exprssion<a name="line.261"></a>
+<span class="sourceLineNo">262</span>     */<a name="line.262"></a>
+<span class="sourceLineNo">263</span>    public Expression getWhereExpr() {<a name="line.263"></a>
+<span class="sourceLineNo">264</span>        return whereExpr;<a name="line.264"></a>
+<span class="sourceLineNo">265</span>    }<a name="line.265"></a>
+<span class="sourceLineNo">266</span><a name="line.266"></a>
+<span class="sourceLineNo">267</span><a name="line.267"></a>
+<span class="sourceLineNo">268</span>    public void addGroupByExpr(Expression groupExpr) {<a name="line.268"></a>
+<span class="sourceLineNo">269</span>        groupByExprs.add(groupExpr);<a name="line.269"></a>
+<span class="sourceLineNo">270</span>    }<a name="line.270"></a>
+<span class="sourceLineNo">271</span><a name="line.271"></a>
+<span class="sourceLineNo">272</span><a name="line.272"></a>
+<span class="sourceLineNo">273</span>    public List&lt;Expression&gt; getGroupByExprs() {<a name="line.273"></a>
+<span class="sourceLineNo">274</span>        return groupByExprs;<a name="line.274"></a>
+<span class="sourceLineNo">275</span>    }<a name="line.275"></a>
+<span class="sourceLineNo">276</span><a name="line.276"></a>
+<span class="sourceLineNo">277</span><a name="line.277"></a>
+<span class="sourceLineNo">278</span>    public void setHavingExpr(Expression havingExpr) {<a name="line.278"></a>
+<span class="sourceLineNo">279</span>        this.havingExpr = havingExpr;<a name="line.279"></a>
+<span class="sourceLineNo">280</span>    }<a name="line.280"></a>
+<span class="sourceLineNo">281</span><a name="line.281"></a>
+<span class="sourceLineNo">282</span><a name="line.282"></a>
+<span class="sourceLineNo">283</span>    public Expression getHavingExpr() {<a name="line.283"></a>
+<span class="sourceLineNo">284</span>        return havingExpr;<a name="line.284"></a>
+<span class="sourceLineNo">285</span>    }<a name="line.285"></a>
+<span class="sourceLineNo">286</span><a name="line.286"></a>
+<span class="sourceLineNo">287</span><a name="line.287"></a>
+<span class="sourceLineNo">288</span>    public void addOrderByExpr(OrderByExpression orderByExpr) {<a name="line.288"></a>
+<span class="sourceLineNo">289</span>        orderByExprs.add(orderByExpr);<a name="line.289"></a>
+<span class="sourceLineNo">290</span>    }<a name="line.290"></a>
+<span class="sourceLineNo">291</span><a name="line.291"></a>
+<span class="sourceLineNo">292</span><a name="line.292"></a>
+<span class="sourceLineNo">293</span>    public List&lt;OrderByExpression&gt; getOrderByExprs() {<a name="line.293"></a>
+<span class="sourceLineNo">294</span>        return orderByExprs;<a name="line.294"></a>
+<span class="sourceLineNo">295</span>    }<a name="line.295"></a>
+<span class="sourceLineNo">296</span><a name="line.296"></a>
+<span class="sourceLineNo">297</span><a name="line.297"></a>
+<span class="sourceLineNo">298</span>    public int getLimit() {<a name="line.298"></a>
+<span class="sourceLineNo">299</span>        return limit;<a name="line.299"></a>
+<span class="sourceLineNo">300</span>    }<a name="line.300"></a>
+<span class="sourceLineNo">301</span><a name="line.301"></a>
+<span class="sourceLineNo">302</span><a name="line.302"></a>
+<span class="sourceLineNo">303</span>    public void setLimit(int limit) {<a name="line.303"></a>
+<span class="sourceLineNo">304</span>        this.limit = limit;<a name="line.304"></a>
+<span class="sourceLineNo">305</span>    }<a name="line.305"></a>
+<span class="sourceLineNo">306</span><a name="line.306"></a>
+<span class="sourceLineNo">307</span><a name="line.307"></a>
+<span class="sourceLineNo">308</span>    /**<a name="line.308"></a>
+<span class="sourceLineNo">309</span>     * If an &lt;tt&gt;OFFSET&lt;/tt&gt; clause is specified, this method returns the<a name="line.309"></a>
+<span class="sourceLineNo">310</span>     * specified offset; otherwise, 0 is returned.<a name="line.310"></a>
+<span class="sourceLineNo">311</span>     *<a name="line.311"></a>
+<span class="sourceLineNo">312</span>     * @return the offset specified in the SQL<a name="line.312"></a>
+<span class="sourceLineNo">313</span>     */<a name="line.313"></a>
+<span class="sourceLineNo">314</span>    public int getOffset() {<a name="line.314"></a>
+<span class="sourceLineNo">315</span>        return offset;<a name="line.315"></a>
+<span class="sourceLineNo">316</span>    }<a name="line.316"></a>
+<span class="sourceLineNo">317</span><a name="line.317"></a>
+<span class="sourceLineNo">318</span><a name="line.318"></a>
+<span class="sourceLineNo">319</span>    public void setOffset(int offset) {<a name="line.319"></a>
+<span class="sourceLineNo">320</span>        this.offset = offset;<a name="line.320"></a>
+<span class="sourceLineNo">321</span>    }<a name="line.321"></a>
+<span class="sourceLineNo">322</span><a name="line.322"></a>
+<span class="sourceLineNo">323</span><a name="line.323"></a>
+<span class="sourceLineNo">324</span>    /**<a name="line.324"></a>
+<span class="sourceLineNo">325</span>     * Returns true if the select clause is correlated with some enclosing<a name="line.325"></a>
+<span class="sourceLineNo">326</span>     * query, or false otherwise.<a name="line.326"></a>
+<span class="sourceLineNo">327</span>     *<a name="line.327"></a>
+<span class="sourceLineNo">328</span>     * @return true if the select clause is correlated with some enclosing<a name="line.328"></a>
+<span class="sourceLineNo">329</span>     *         query, or false otherwise.<a name="line.329"></a>
+<span class="sourceLineNo">330</span>     */<a name="line.330"></a>
+<span class="sourceLineNo">331</span>    public boolean isCorrelated() {<a name="line.331"></a>
+<span class="sourceLineNo">332</span>        return !correlatedWith.isEmpty();<a name="line.332"></a>
+<span class="sourceLineNo">333</span>    }<a name="line.333"></a>
+<span class="sourceLineNo">334</span><a name="line.334"></a>
+<span class="sourceLineNo">335</span><a name="line.335"></a>
+<span class="sourceLineNo">336</span>    public Set&lt;ColumnName&gt; getCorrelatedColumns() {<a name="line.336"></a>
+<span class="sourceLineNo">337</span>        return correlatedWith.keySet();<a name="line.337"></a>
+<span class="sourceLineNo">338</span>    }<a name="line.338"></a>
+<span class="sourceLineNo">339</span><a name="line.339"></a>
+<span class="sourceLineNo">340</span><a name="line.340"></a>
+<span class="sourceLineNo">341</span>    /**<a name="line.341"></a>
+<span class="sourceLineNo">342</span>     * This method computes the resulting schema from this query, and in the<a name="line.342"></a>
+<span class="sourceLineNo">343</span>     * process it performs various semantic checks as well.<a name="line.343"></a>
+<span class="sourceLineNo">344</span>     *<a name="line.344"></a>
+<span class="sourceLineNo">345</span>     * @param tableManager the table manager to use for retrieving schema info<a name="line.345"></a>
+<span class="sourceLineNo">346</span>     *<a name="line.346"></a>
+<span class="sourceLineNo">347</span>     * @param parentSelect the enclosing SELECT query if this is a nested<a name="line.347"></a>
+<span class="sourceLineNo">348</span>     *        subquery, or {@code null} if this is a top-level query<a name="line.348"></a>
+<span class="sourceLineNo">349</span>     *<a name="line.349"></a>
+<span class="sourceLineNo">350</span>     * @return the schema of this select clause's result<a name="line.350"></a>
+<span class="sourceLineNo">351</span>     *<a name="line.351"></a>
+<span class="sourceLineNo">352</span>     * @throws IOException if the database cannot read schema from the disk<a name="line.352"></a>
+<span class="sourceLineNo">353</span>     *         along the way<a name="line.353"></a>
+<span class="sourceLineNo">354</span>     *<a name="line.354"></a>
+<span class="sourceLineNo">355</span>     * @throws SchemaNameException if the select clause contains some kind of<a name="line.355"></a>
+<span class="sourceLineNo">356</span>     *         semantic error involving schemas that are referenced<a name="line.356"></a>
+<span class="sourceLineNo">357</span>     */<a name="line.357"></a>
+<span class="sourceLineNo">358</span>    public Schema computeSchema(TableManager tableManager,<a name="line.358"></a>
+<span class="sourceLineNo">359</span>        SelectClause parentSelect) throws IOException, SchemaNameException {<a name="line.359"></a>
+<span class="sourceLineNo">360</span><a name="line.360"></a>
+<span class="sourceLineNo">361</span>        this.parentSelect = parentSelect;<a name="line.361"></a>
+<span class="sourceLineNo">362</span><a name="line.362"></a>
+<span class="sourceLineNo">363</span>        // Compute the schema of the FROM clause first.  We assume that no<a name="line.363"></a>
+<span class="sourceLineNo">364</span>        // subqueries in the FROM clause are correlated with this or enclosing<a name="line.364"></a>
+<span class="sourceLineNo">365</span>        // queries.<a name="line.365"></a>
+<span class="sourceLineNo">366</span>        if (fromClause != null) {<a name="line.366"></a>
+<span class="sourceLineNo">367</span>            fromSchema = fromClause.computeSchema(tableManager);<a name="line.367"></a>
+<span class="sourceLineNo">368</span>        }<a name="line.368"></a>
+<span class="sourceLineNo">369</span>        else {<a name="line.369"></a>
+<span class="sourceLineNo">370</span>            // No FROM clause - no FROM schema...<a name="line.370"></a>
+<span class="sourceLineNo">371</span>            fromSchema = new Schema();<a name="line.371"></a>
+<span class="sourceLineNo">372</span>        }<a name="line.372"></a>
+<span class="sourceLineNo">373</span><a name="line.373"></a>
+<span class="sourceLineNo">374</span>        // This helper-object is used for handling subqueries in the SELECT,<a name="line.374"></a>
+<span class="sourceLineNo">375</span>        // WHERE and HAVING clauses.  These nested queries need to have their<a name="line.375"></a>
+<span class="sourceLineNo">376</span>        // schemas computed, and possible correlated evaluation identified.<a name="line.376"></a>
+<span class="sourceLineNo">377</span>        SubquerySchemaComputer subquerySchemaComputer =<a name="line.377"></a>
+<span class="sourceLineNo">378</span>            new SubquerySchemaComputer(this, tableManager);<a name="line.378"></a>
+<span class="sourceLineNo">379</span><a name="line.379"></a>
+<span class="sourceLineNo">380</span>        // Make sure that all expressions in this SELECT clause reference<a name="line.380"></a>
+<span class="sourceLineNo">381</span>        // known and non-ambiguous names from the FROM clause.<a name="line.381"></a>
+<span class="sourceLineNo">382</span><a name="line.382"></a>
+<span class="sourceLineNo">383</span>        // SELECT values:  SELECT a, b + c, tbl.* ...<a name="line.383"></a>
+<span class="sourceLineNo">384</span>        resultSchema = new Schema();<a name="line.384"></a>
+<span class="sourceLineNo">385</span>        Set&lt;String&gt; fromTables = fromSchema.getTableNames();<a name="line.385"></a>
+<span class="sourceLineNo">386</span>        for (SelectValue selVal : selectValues) {<a name="line.386"></a>
+<span class="sourceLineNo">387</span>            if (selVal.isWildcard()) {<a name="line.387"></a>
+<span class="sourceLineNo">388</span>                // Make sure that if a table name is specified, that the table<a name="line.388"></a>
+<span class="sourceLineNo">389</span>                // name is in the query's FROM-clause schema.<a name="line.389"></a>
+<span class="sourceLineNo">390</span>                ColumnName colName = selVal.getWildcard();<a name="line.390"></a>
+<span class="sourceLineNo">391</span>                if (colName.isTableSpecified()) {<a name="line.391"></a>
+<span class="sourceLineNo">392</span>                    if (!fromTables.contains(colName.getTableName())) {<a name="line.392"></a>
+<span class="sourceLineNo">393</span>                        throw new SchemaNameException("SELECT-value " + colName +<a name="line.393"></a>
+<span class="sourceLineNo">394</span>                            " specifies an unrecognized table name.");<a name="line.394"></a>
+<span class="sourceLineNo">395</span>                    }<a name="line.395"></a>
+<span class="sourceLineNo">396</span>                }<a name="line.396"></a>
+<span class="sourceLineNo">397</span>            }<a name="line.397"></a>
+<span class="sourceLineNo">398</span>            else {<a name="line.398"></a>
+<span class="sourceLineNo">399</span>                // An expression that is not a wildcard.  It could contain<a name="line.399"></a>
+<span class="sourceLineNo">400</span>                // column references that need to be resolved.  Also, it could<a name="line.400"></a>
+<span class="sourceLineNo">401</span>                // contain a scalar subquery, particularly one that requires<a name="line.401"></a>
+<span class="sourceLineNo">402</span>                // correlated evaluation.<a name="line.402"></a>
+<span class="sourceLineNo">403</span>                Expression expr = selVal.getExpression();<a name="line.403"></a>
+<span class="sourceLineNo">404</span><a name="line.404"></a>
+<span class="sourceLineNo">405</span>                // Get the list of column-values, and resolve each one.<a name="line.405"></a>
+<span class="sourceLineNo">406</span>                // Note that this will not descend into subqueries.<a name="line.406"></a>
+<span class="sourceLineNo">407</span>                resolveExpressionRefs("SELECT-value", expr, fromSchema,<a name="line.407"></a>
+<span class="sourceLineNo">408</span>                    /* checkParentQueries */ true);<a name="line.408"></a>
+<span class="sourceLineNo">409</span><a name="line.409"></a>
+<span class="sourceLineNo">410</span>                // If the expression contains any subqueries, resolve any<a name="line.410"></a>
+<span class="sourceLineNo">411</span>                // column-references that reference this or enclosing queries.<a name="line.411"></a>
+<span class="sourceLineNo">412</span>                expr.traverse(subquerySchemaComputer);<a name="line.412"></a>
+<span class="sourceLineNo">413</span>            }<a name="line.413"></a>
+<span class="sourceLineNo">414</span><a name="line.414"></a>
+<span class="sourceLineNo">415</span>            // Update the result-schema with this select-value's column-info(s).<a name="line.415"></a>
+<span class="sourceLineNo">416</span>            resultSchema.append(selVal.getColumnInfos(fromSchema, resultSchema));<a name="line.416"></a>
+<span class="sourceLineNo">417</span>        }<a name="line.417"></a>
+<span class="sourceLineNo">418</span><a name="line.418"></a>
+<span class="sourceLineNo">419</span>        logger.debug("Query schema:  " + resultSchema);<a name="line.419"></a>
+<span class="sourceLineNo">420</span>        logger.debug("FROM-clause schema:  " + fromSchema);<a name="line.420"></a>
+<span class="sourceLineNo">421</span><a name="line.421"></a>
+<span class="sourceLineNo">422</span>        // WHERE clause:<a name="line.422"></a>
+<span class="sourceLineNo">423</span>        if (whereExpr != null) {<a name="line.423"></a>
+<span class="sourceLineNo">424</span>            resolveExpressionRefs("WHERE clause", whereExpr, fromSchema,<a name="line.424"></a>
+<span class="sourceLineNo">425</span>                /* checkParentQueries */ true);<a name="line.425"></a>
+<span class="sourceLineNo">426</span><a name="line.426"></a>
+<span class="sourceLineNo">427</span>            whereExpr.traverse(subquerySchemaComputer);<a name="line.427"></a>
+<span class="sourceLineNo">428</span>        }<a name="line.428"></a>
+<span class="sourceLineNo">429</span><a name="line.429"></a>
+<span class="sourceLineNo">430</span>        // GROUP BY clauses:<a name="line.430"></a>
+<span class="sourceLineNo">431</span>        for (Expression expr : groupByExprs) {<a name="line.431"></a>
+<span class="sourceLineNo">432</span>            // GROUP BY expressions aren't allowed to have subqueries.<a name="line.432"></a>
+<span class="sourceLineNo">433</span>            resolveExpressionRefs("GROUP BY clause", expr, fromSchema,<a name="line.433"></a>
+<span class="sourceLineNo">434</span>                /* checkParentQueries */ false);<a name="line.434"></a>
+<span class="sourceLineNo">435</span>        }<a name="line.435"></a>
+<span class="sourceLineNo">436</span><a name="line.436"></a>
+<span class="sourceLineNo">437</span>        // HAVING clause:<a name="line.437"></a>
+<span class="sourceLineNo">438</span>        if (havingExpr != null) {<a name="line.438"></a>
+<span class="sourceLineNo">439</span>            // The HAVING clause can reference values produced by grouping and<a name="line.439"></a>
+<span class="sourceLineNo">440</span>            // aggregation.  However, according to the SQL standard, it won't<a name="line.440"></a>
+<span class="sourceLineNo">441</span>            // see any values except from the FROM-clause's schema.<a name="line.441"></a>
+<span class="sourceLineNo">442</span>            resolveExpressionRefs("HAVING clause", havingExpr, fromSchema,<a name="line.442"></a>
+<span class="sourceLineNo">443</span>                /* checkParentQueries */ true);<a name="line.443"></a>
+<span class="sourceLineNo">444</span><a name="line.444"></a>
+<span class="sourceLineNo">445</span>            havingExpr.traverse(subquerySchemaComputer);<a name="line.445"></a>
+<span class="sourceLineNo">446</span>        }<a name="line.446"></a>
+<span class="sourceLineNo">447</span><a name="line.447"></a>
+<span class="sourceLineNo">448</span>        // ORDER BY clauses:<a name="line.448"></a>
+<span class="sourceLineNo">449</span>        for (OrderByExpression expr : orderByExprs) {<a name="line.449"></a>
+<span class="sourceLineNo">450</span>            // ORDER BY expressions aren't allowed to have subqueries.<a name="line.450"></a>
+<span class="sourceLineNo">451</span>            resolveExpressionRefs("ORDER BY clause", expr.getExpression(),<a name="line.451"></a>
+<span class="sourceLineNo">452</span>                fromSchema, /* checkParentQueries */ false);<a name="line.452"></a>
+<span class="sourceLineNo">453</span>        }<a name="line.453"></a>
+<span class="sourceLineNo">454</span><a name="line.454"></a>
+<span class="sourceLineNo">455</span>        // All done!  Return the computed schema.<a name="line.455"></a>
+<span class="sourceLineNo">456</span>        return resultSchema;<a name="line.456"></a>
+<span class="sourceLineNo">457</span>    }<a name="line.457"></a>
+<span class="sourceLineNo">458</span><a name="line.458"></a>
+<span class="sourceLineNo">459</span><a name="line.459"></a>
+<span class="sourceLineNo">460</span>    /**<a name="line.460"></a>
+<span class="sourceLineNo">461</span>     * Returns the schema for this select clause, or {@code null} if the<a name="line.461"></a>
+<span class="sourceLineNo">462</span>     * {@link #computeSchema} method hasn't yet been called on this clause.<a name="line.462"></a>
+<span class="sourceLineNo">463</span>     *<a name="line.463"></a>
+<span class="sourceLineNo">464</span>     * @return the schema for this select clause<a name="line.464"></a>
+<span class="sourceLineNo">465</span>     */<a name="line.465"></a>
+<span class="sourceLineNo">466</span>    public Schema getSchema() {<a name="line.466"></a>
+<span class="sourceLineNo">467</span>        return resultSchema;<a name="line.467"></a>
+<span class="sourceLineNo">468</span>    }<a name="line.468"></a>
+<span class="sourceLineNo">469</span><a name="line.469"></a>
+<span class="sourceLineNo">470</span><a name="line.470"></a>
+<span class="sourceLineNo">471</span>    /**<a name="line.471"></a>
+<span class="sourceLineNo">472</span>     * This helper function goes through the expression and verifies that<a name="line.472"></a>
+<span class="sourceLineNo">473</span>     * every symbol-reference corresponds to an actual value produced by the<a name="line.473"></a>
+<span class="sourceLineNo">474</span>     * &lt;tt&gt;FROM&lt;/tt&gt;-clause of the &lt;tt&gt;SELECT&lt;/tt&gt; query.  Any column-names<a name="line.474"></a>
+<span class="sourceLineNo">475</span>     * that don't include a table-name are also updated to include the proper<a name="line.475"></a>
+<span class="sourceLineNo">476</span>     * table-name.<a name="line.476"></a>
+<span class="sourceLineNo">477</span>     * &lt;p&gt;<a name="line.477"></a>
+<span class="sourceLineNo">478</span>     * It's possible to have symbols that don't reference columns in the<a name="line.478"></a>
+<span class="sourceLineNo">479</span>     * &lt;tt&gt;FROM&lt;/tt&gt; clause, if a query is correlated with an enclosing query.<a name="line.479"></a>
+<span class="sourceLineNo">480</span>     * In these cases, the unresolvable attributes are collected so they can<a name="line.480"></a>
+<span class="sourceLineNo">481</span>     * be resolved at the end of the process.<a name="line.481"></a>
+<span class="sourceLineNo">482</span>     *<a name="line.482"></a>
+<span class="sourceLineNo">483</span>     * @param desc A short string describing the context of the expression,<a name="line.483"></a>
+<span class="sourceLineNo">484</span>     *        since expressions can appear in the &lt;tt&gt;SELECT&lt;/tt&gt; clause, the<a name="line.484"></a>
+<span class="sourceLineNo">485</span>     *        &lt;tt&gt;WHERE&lt;/tt&gt; clause, the &lt;tt&gt;GROUP BY&lt;/tt&gt; clause, etc.<a name="line.485"></a>
+<span class="sourceLineNo">486</span>     *<a name="line.486"></a>
+<span class="sourceLineNo">487</span>     * @param expr The expression that will be evaluated.<a name="line.487"></a>
+<span class="sourceLineNo">488</span>     *<a name="line.488"></a>
+<span class="sourceLineNo">489</span>     * @param s The schema against which the expression will be evaluated.<a name="line.489"></a>
+<span class="sourceLineNo">490</span>     *<a name="line.490"></a>
+<span class="sourceLineNo">491</span>     * @param checkParentQueries if this is true and the column-name can't be<a name="line.491"></a>
+<span class="sourceLineNo">492</span>     *        resolved against the current query, any parent queries will also<a name="line.492"></a>
+<span class="sourceLineNo">493</span>     *        be checked for the column-name.  This allows correlated queries<a name="line.493"></a>
+<span class="sourceLineNo">494</span>     *        to be resolved properly.<a name="line.494"></a>
+<span class="sourceLineNo">495</span>     *<a name="line.495"></a>
+<span class="sourceLineNo">496</span>     * @throws SchemaNameException if an expression-reference cannot be resolved<a name="line.496"></a>
+<span class="sourceLineNo">497</span>     *         against the specified schema, either because the named column<a name="line.497"></a>
+<span class="sourceLineNo">498</span>     *         or table doesn't appear in the schema, or if a column name is<a name="line.498"></a>
+<span class="sourceLineNo">499</span>     *         ambiguous.<a name="line.499"></a>
+<span class="sourceLineNo">500</span>     */<a name="line.500"></a>
+<span class="sourceLineNo">501</span>    private void resolveExpressionRefs(String desc, Expression expr, Schema s,<a name="line.501"></a>
+<span class="sourceLineNo">502</span>        boolean checkParentQueries) throws SchemaNameException {<a name="line.502"></a>
+<span class="sourceLineNo">503</span><a name="line.503"></a>
+<span class="sourceLineNo">504</span>        // Get the list of column-values in the expression, and resolve each one.<a name="line.504"></a>
+<span class="sourceLineNo">505</span>        // (This won't include subquery expressions, since they will reference<a name="line.505"></a>
+<span class="sourceLineNo">506</span>        // the subquery's schema.)<a name="line.506"></a>
+<span class="sourceLineNo">507</span>        ArrayList&lt;ColumnName&gt; exprColumns = new ArrayList&lt;&gt;();<a name="line.507"></a>
+<span class="sourceLineNo">508</span>        expr.getAllSymbols(exprColumns);<a name="line.508"></a>
+<span class="sourceLineNo">509</span><a name="line.509"></a>
+<span class="sourceLineNo">510</span>        for (ColumnName colName : exprColumns) {<a name="line.510"></a>
+<span class="sourceLineNo">511</span>            assert !colName.isColumnWildcard();<a name="line.511"></a>
+<span class="sourceLineNo">512</span>            resolveColumnRef(desc, expr, colName, s, checkParentQueries);<a name="line.512"></a>
+<span class="sourceLineNo">513</span>        }<a name="line.513"></a>
+<span class="sourceLineNo">514</span>    }<a name="line.514"></a>
+<span class="sourceLineNo">515</span><a name="line.515"></a>
+<span class="sourceLineNo">516</span><a name="line.516"></a>
+<span class="sourceLineNo">517</span>    /**<a name="line.517"></a>
+<span class="sourceLineNo">518</span>     * This helper function attempts to resolve a specific column-name against<a name="line.518"></a>
+<span class="sourceLineNo">519</span>     * a query's schema.<a name="line.519"></a>
+<span class="sourceLineNo">520</span><a name="line.520"></a>
+<span class="sourceLineNo">521</span>     * @param desc A short string describing the context of the expression,<a name="line.521"></a>
+<span class="sourceLineNo">522</span>     *        since expressions can appear in the &lt;tt&gt;SELECT&lt;/tt&gt; clause, the<a name="line.522"></a>
+<span class="sourceLineNo">523</span>     *        &lt;tt&gt;WHERE&lt;/tt&gt; clause, the &lt;tt&gt;GROUP BY&lt;/tt&gt; clause, etc.<a name="line.523"></a>
+<span class="sourceLineNo">524</span>     *<a name="line.524"></a>
+<span class="sourceLineNo">525</span>     * @param expr The expression that will be evaluated.<a name="line.525"></a>
+<span class="sourceLineNo">526</span>     *<a name="line.526"></a>
+<span class="sourceLineNo">527</span>     * @param colName The column-name to resolve.<a name="line.527"></a>
+<span class="sourceLineNo">528</span>     *<a name="line.528"></a>
+<span class="sourceLineNo">529</span>     * @param s The schema against which the expression will be evaluated.<a name="line.529"></a>
+<span class="sourceLineNo">530</span>     *<a name="line.530"></a>
+<span class="sourceLineNo">531</span>     * @param checkParentQueries if this is true and the column-name can't be<a name="line.531"></a>
+<span class="sourceLineNo">532</span>     *        resolved against the current query, any parent queries will also<a name="line.532"></a>
+<span class="sourceLineNo">533</span>     *        be checked for the column-name.  This allows correlated queries<a name="line.533"></a>
+<span class="sourceLineNo">534</span>     *        to be resolved properly.<a name="line.534"></a>
+<span class="sourceLineNo">535</span>     *<a name="line.535"></a>
+<span class="sourceLineNo">536</span>     * @throws SchemaNameException if an expression-reference cannot be resolved<a name="line.536"></a>
+<span class="sourceLineNo">537</span>     *         against the specified schema, either because the named column<a name="line.537"></a>
+<span class="sourceLineNo">538</span>     *         or table doesn't appear in the schema, or if a column name is<a name="line.538"></a>
+<span class="sourceLineNo">539</span>     *         ambiguous.<a name="line.539"></a>
+<span class="sourceLineNo">540</span>     */<a name="line.540"></a>
+<span class="sourceLineNo">541</span>    private void resolveColumnRef(String desc, Expression expr,<a name="line.541"></a>
+<span class="sourceLineNo">542</span>        ColumnName colName, Schema s, boolean checkParentQueries)<a name="line.542"></a>
+<span class="sourceLineNo">543</span>        throws SchemaNameException {<a name="line.543"></a>
+<span class="sourceLineNo">544</span><a name="line.544"></a>
+<span class="sourceLineNo">545</span>        // This flag indicates whether we are referencing a column in a parent<a name="line.545"></a>
+<span class="sourceLineNo">546</span>        // query.<a name="line.546"></a>
+<span class="sourceLineNo">547</span>        boolean parentRef = false;<a name="line.547"></a>
+<span class="sourceLineNo">548</span><a name="line.548"></a>
+<span class="sourceLineNo">549</span>        // This is the query that we are examining.<a name="line.549"></a>
+<span class="sourceLineNo">550</span>        SelectClause clause = this;<a name="line.550"></a>
+<span class="sourceLineNo">551</span>        while (true) {<a name="line.551"></a>
+<span class="sourceLineNo">552</span>            // Attempt to resolve the column-name against the current schema's<a name="line.552"></a>
+<span class="sourceLineNo">553</span>            // columns.<a name="line.553"></a>
+<span class="sourceLineNo">554</span>            SortedMap&lt;Integer, ColumnInfo&gt; found = s.findColumns(colName);<a name="line.554"></a>
+<span class="sourceLineNo">555</span><a name="line.555"></a>
+<span class="sourceLineNo">556</span>            if (found.size() == 1) {<a name="line.556"></a>
+<span class="sourceLineNo">557</span>                // Found exactly one column that matches!<a name="line.557"></a>
+<span class="sourceLineNo">558</span>                if (!colName.isTableSpecified()) {<a name="line.558"></a>
+<span class="sourceLineNo">559</span>                    // Update the column-reference with the table name.<a name="line.559"></a>
+<span class="sourceLineNo">560</span>                    ColumnInfo colInfo = found.get(found.firstKey());<a name="line.560"></a>
+<span class="sourceLineNo">561</span>                    colName.setTableName(colInfo.getTableName());<a name="line.561"></a>
+<span class="sourceLineNo">562</span>                }<a name="line.562"></a>
+<span class="sourceLineNo">563</span><a name="line.563"></a>
+<span class="sourceLineNo">564</span>                if (parentRef) {<a name="line.564"></a>
+<span class="sourceLineNo">565</span>                    // This column-name references a column produced by a<a name="line.565"></a>
+<span class="sourceLineNo">566</span>                    // parent query, not this query.<a name="line.566"></a>
+<span class="sourceLineNo">567</span>                    assert clause != this;<a name="line.567"></a>
+<span class="sourceLineNo">568</span><a name="line.568"></a>
+<span class="sourceLineNo">569</span>                    // Sanity-check:  have we already seen this column name?<a name="line.569"></a>
+<span class="sourceLineNo">570</span>                    // If so, make sure that we find the same clause each time<a name="line.570"></a>
+<span class="sourceLineNo">571</span>                    if (correlatedWith.containsKey(colName) &amp;&amp;<a name="line.571"></a>
+<span class="sourceLineNo">572</span>                        correlatedWith.get(colName) != clause) {<a name="line.572"></a>
+<span class="sourceLineNo">573</span>                        throw new IllegalStateException(String.format(<a name="line.573"></a>
+<span class="sourceLineNo">574</span>                            "Column name %s is associated with two " +<a name="line.574"></a>
+<span class="sourceLineNo">575</span>                            "different queries", colName));<a name="line.575"></a>
+<span class="sourceLineNo">576</span>                    }<a name="line.576"></a>
+<span class="sourceLineNo">577</span>                    correlatedWith.put(colName, clause);<a name="line.577"></a>
+<span class="sourceLineNo">578</span>                }<a name="line.578"></a>
+<span class="sourceLineNo">579</span><a name="line.579"></a>
+<span class="sourceLineNo">580</span>                return;<a name="line.580"></a>
+<span class="sourceLineNo">581</span>            }<a name="line.581"></a>
+<span class="sourceLineNo">582</span><a name="line.582"></a>
+<span class="sourceLineNo">583</span>            if (found.size() &gt; 1) {<a name="line.583"></a>
+<span class="sourceLineNo">584</span>                // In this case the column name is ambiguous - there may be<a name="line.584"></a>
+<span class="sourceLineNo">585</span>                // multiple columns in the schema with the same column name<a name="line.585"></a>
+<span class="sourceLineNo">586</span>                // but different table names.<a name="line.586"></a>
+<span class="sourceLineNo">587</span>                throw new SchemaNameException(String.format(<a name="line.587"></a>
+<span class="sourceLineNo">588</span>                    "%s %s contains an ambiguous column %s; found %s.",<a name="line.588"></a>
+<span class="sourceLineNo">589</span>                    desc, expr, colName, found.values()));<a name="line.589"></a>
+<span class="sourceLineNo">590</span>            }<a name="line.590"></a>
+<span class="sourceLineNo">591</span><a name="line.591"></a>
+<span class="sourceLineNo">592</span>            // We should only get to this point in the loop if we couldn't find<a name="line.592"></a>
+<span class="sourceLineNo">593</span>            // a column with the specified name.<a name="line.593"></a>
+<span class="sourceLineNo">594</span>            assert found.size() == 0;<a name="line.594"></a>
+<span class="sourceLineNo">595</span><a name="line.595"></a>
+<span class="sourceLineNo">596</span>            if (checkParentQueries &amp;&amp; clause.parentSelect != null) {<a name="line.596"></a>
+<span class="sourceLineNo">597</span>                clause = clause.parentSelect;<a name="line.597"></a>
+<span class="sourceLineNo">598</span>                s = clause.getFromSchema();<a name="line.598"></a>
+<span class="sourceLineNo">599</span>                parentRef = true;<a name="line.599"></a>
+<span class="sourceLineNo">600</span>            }<a name="line.600"></a>
+<span class="sourceLineNo">601</span>            else {<a name="line.601"></a>
+<span class="sourceLineNo">602</span>                throw new SchemaNameException(String.format(<a name="line.602"></a>
+<span class="sourceLineNo">603</span>                    "%s %s references an unknown column %s.",<a name="line.603"></a>
+<span class="sourceLineNo">604</span>                    desc, expr, colName));<a name="line.604"></a>
+<span class="sourceLineNo">605</span>            }<a name="line.605"></a>
+<span class="sourceLineNo">606</span>        }<a name="line.606"></a>
+<span class="sourceLineNo">607</span>    }<a name="line.607"></a>
+<span class="sourceLineNo">608</span><a name="line.608"></a>
+<span class="sourceLineNo">609</span><a name="line.609"></a>
+<span class="sourceLineNo">610</span>    @Override<a name="line.610"></a>
+<span class="sourceLineNo">611</span>    public String toString() {<a name="line.611"></a>
+<span class="sourceLineNo">612</span>        StringBuilder buf = new StringBuilder();<a name="line.612"></a>
+<span class="sourceLineNo">613</span><a name="line.613"></a>
+<span class="sourceLineNo">614</span>        buf.append("SelectClause[id=").append(System.identityHashCode(this)).append('\n');<a name="line.614"></a>
+<span class="sourceLineNo">615</span><a name="line.615"></a>
+<span class="sourceLineNo">616</span>        if (selectValues.size() &gt; 0)<a name="line.616"></a>
+<span class="sourceLineNo">617</span>            buf.append("\tvalues=").append(selectValues).append('\n');<a name="line.617"></a>
+<span class="sourceLineNo">618</span><a name="line.618"></a>
+<span class="sourceLineNo">619</span>        if (fromClause != null)<a name="line.619"></a>
+<span class="sourceLineNo">620</span>            buf.append("\tfrom=").append(fromClause).append('\n');<a name="line.620"></a>
+<span class="sourceLineNo">621</span><a name="line.621"></a>
+<span class="sourceLineNo">622</span>        if (whereExpr != null)<a name="line.622"></a>
+<span class="sourceLineNo">623</span>            buf.append("\twhere=").append(whereExpr).append('\n');<a name="line.623"></a>
+<span class="sourceLineNo">624</span><a name="line.624"></a>
+<span class="sourceLineNo">625</span>        if (groupByExprs.size() &gt; 0)<a name="line.625"></a>
+<span class="sourceLineNo">626</span>            buf.append("\tgroup_by=").append(groupByExprs).append('\n');<a name="line.626"></a>
+<span class="sourceLineNo">627</span><a name="line.627"></a>
+<span class="sourceLineNo">628</span>        if (havingExpr != null)<a name="line.628"></a>
+<span class="sourceLineNo">629</span>            buf.append("\thaving=").append(havingExpr).append('\n');<a name="line.629"></a>
+<span class="sourceLineNo">630</span><a name="line.630"></a>
+<span class="sourceLineNo">631</span>        if (orderByExprs.size() &gt; 0)<a name="line.631"></a>
+<span class="sourceLineNo">632</span>            buf.append("\torder_by=").append(orderByExprs).append('\n');<a name="line.632"></a>
+<span class="sourceLineNo">633</span><a name="line.633"></a>
+<span class="sourceLineNo">634</span>        if (correlatedWith.size() &gt; 0) {<a name="line.634"></a>
+<span class="sourceLineNo">635</span>            buf.append("\tcorrelatedWith=[");<a name="line.635"></a>
+<span class="sourceLineNo">636</span><a name="line.636"></a>
+<span class="sourceLineNo">637</span>            boolean first = true;<a name="line.637"></a>
+<span class="sourceLineNo">638</span>            for (Map.Entry e: correlatedWith.entrySet()) {<a name="line.638"></a>
+<span class="sourceLineNo">639</span>                if (first)<a name="line.639"></a>
+<span class="sourceLineNo">640</span>                    first = false;<a name="line.640"></a>
+<span class="sourceLineNo">641</span>                else<a name="line.641"></a>
+<span class="sourceLineNo">642</span>                    buf.append(',');<a name="line.642"></a>
+<span class="sourceLineNo">643</span><a name="line.643"></a>
+<span class="sourceLineNo">644</span>                buf.append(e.getKey()).append(':');<a name="line.644"></a>
+<span class="sourceLineNo">645</span>                buf.append(System.identityHashCode(e.getValue()));<a name="line.645"></a>
+<span class="sourceLineNo">646</span>            }<a name="line.646"></a>
+<span class="sourceLineNo">647</span>            buf.append("]\n");<a name="line.647"></a>
+<span class="sourceLineNo">648</span>        }<a name="line.648"></a>
+<span class="sourceLineNo">649</span><a name="line.649"></a>
+<span class="sourceLineNo">650</span>        buf.append(']');<a name="line.650"></a>
+<span class="sourceLineNo">651</span><a name="line.651"></a>
+<span class="sourceLineNo">652</span>        return buf.toString();<a name="line.652"></a>
+<span class="sourceLineNo">653</span>    }<a name="line.653"></a>
+<span class="sourceLineNo">654</span>}<a name="line.654"></a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre>
+</div>
+</body>
+</html>

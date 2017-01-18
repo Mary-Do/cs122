@@ -1,0 +1,120 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<title>Source code</title>
+<link rel="stylesheet" type="text/css" href="../../../../../stylesheet.css" title="Style">
+</head>
+<body>
+<div class="sourceContainer">
+<pre><span class="sourceLineNo">001</span>package edu.caltech.nanodb.relations;<a name="line.1"></a>
+<span class="sourceLineNo">002</span><a name="line.2"></a>
+<span class="sourceLineNo">003</span><a name="line.3"></a>
+<span class="sourceLineNo">004</span>/** An enumeration specifying the different types of join operation. */<a name="line.4"></a>
+<span class="sourceLineNo">005</span>public enum JoinType {<a name="line.5"></a>
+<span class="sourceLineNo">006</span><a name="line.6"></a>
+<span class="sourceLineNo">007</span>    /** Inner joins, where only matching rows are included in the result. */<a name="line.7"></a>
+<span class="sourceLineNo">008</span>    INNER,<a name="line.8"></a>
+<span class="sourceLineNo">009</span><a name="line.9"></a>
+<span class="sourceLineNo">010</span><a name="line.10"></a>
+<span class="sourceLineNo">011</span>    /**<a name="line.11"></a>
+<span class="sourceLineNo">012</span>     * Left outer joins, where non-matching rows from the left table are<a name="line.12"></a>
+<span class="sourceLineNo">013</span>     * included in the results.<a name="line.13"></a>
+<span class="sourceLineNo">014</span>     */<a name="line.14"></a>
+<span class="sourceLineNo">015</span>    LEFT_OUTER,<a name="line.15"></a>
+<span class="sourceLineNo">016</span><a name="line.16"></a>
+<span class="sourceLineNo">017</span><a name="line.17"></a>
+<span class="sourceLineNo">018</span>    /**<a name="line.18"></a>
+<span class="sourceLineNo">019</span>     * Right outer joins, where non-matching rows from the right table are<a name="line.19"></a>
+<span class="sourceLineNo">020</span>     * included in the results.<a name="line.20"></a>
+<span class="sourceLineNo">021</span>     */<a name="line.21"></a>
+<span class="sourceLineNo">022</span>    RIGHT_OUTER,<a name="line.22"></a>
+<span class="sourceLineNo">023</span><a name="line.23"></a>
+<span class="sourceLineNo">024</span><a name="line.24"></a>
+<span class="sourceLineNo">025</span>    /**<a name="line.25"></a>
+<span class="sourceLineNo">026</span>     * Full outer joins, where non-matching rows from either the left or right<a name="line.26"></a>
+<span class="sourceLineNo">027</span>     * table are included in the results.<a name="line.27"></a>
+<span class="sourceLineNo">028</span>     */<a name="line.28"></a>
+<span class="sourceLineNo">029</span>    FULL_OUTER,<a name="line.29"></a>
+<span class="sourceLineNo">030</span><a name="line.30"></a>
+<span class="sourceLineNo">031</span><a name="line.31"></a>
+<span class="sourceLineNo">032</span>    /** Cross joins, which are simply a Cartesian product. */<a name="line.32"></a>
+<span class="sourceLineNo">033</span>    CROSS,<a name="line.33"></a>
+<span class="sourceLineNo">034</span><a name="line.34"></a>
+<span class="sourceLineNo">035</span><a name="line.35"></a>
+<span class="sourceLineNo">036</span>    /**<a name="line.36"></a>
+<span class="sourceLineNo">037</span>     * Semijoin, where the left table's rows are included when they match<a name="line.37"></a>
+<span class="sourceLineNo">038</span>     * one or more rows from the right table.<a name="line.38"></a>
+<span class="sourceLineNo">039</span>     */<a name="line.39"></a>
+<span class="sourceLineNo">040</span>    SEMIJOIN,<a name="line.40"></a>
+<span class="sourceLineNo">041</span><a name="line.41"></a>
+<span class="sourceLineNo">042</span><a name="line.42"></a>
+<span class="sourceLineNo">043</span>    /**<a name="line.43"></a>
+<span class="sourceLineNo">044</span>     * Antijoin (aka anti-semijoin), where the left table's rows are included<a name="line.44"></a>
+<span class="sourceLineNo">045</span>     * when they match none of the rows from the right table.<a name="line.45"></a>
+<span class="sourceLineNo">046</span>     */<a name="line.46"></a>
+<span class="sourceLineNo">047</span>    ANTIJOIN<a name="line.47"></a>
+<span class="sourceLineNo">048</span>}<a name="line.48"></a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre>
+</div>
+</body>
+</html>

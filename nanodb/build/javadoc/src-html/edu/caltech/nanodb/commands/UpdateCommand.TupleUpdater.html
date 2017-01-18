@@ -1,0 +1,318 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<title>Source code</title>
+<link rel="stylesheet" type="text/css" href="../../../../../stylesheet.css" title="Style">
+</head>
+<body>
+<div class="sourceContainer">
+<pre><span class="sourceLineNo">001</span>package edu.caltech.nanodb.commands;<a name="line.1"></a>
+<span class="sourceLineNo">002</span><a name="line.2"></a>
+<span class="sourceLineNo">003</span><a name="line.3"></a>
+<span class="sourceLineNo">004</span>import java.io.IOException;<a name="line.4"></a>
+<span class="sourceLineNo">005</span><a name="line.5"></a>
+<span class="sourceLineNo">006</span>import java.util.ArrayList;<a name="line.6"></a>
+<span class="sourceLineNo">007</span>import java.util.HashMap;<a name="line.7"></a>
+<span class="sourceLineNo">008</span>import java.util.List;<a name="line.8"></a>
+<span class="sourceLineNo">009</span><a name="line.9"></a>
+<span class="sourceLineNo">010</span>import edu.caltech.nanodb.expressions.Environment;<a name="line.10"></a>
+<span class="sourceLineNo">011</span>import edu.caltech.nanodb.expressions.Expression;<a name="line.11"></a>
+<span class="sourceLineNo">012</span><a name="line.12"></a>
+<span class="sourceLineNo">013</span>import edu.caltech.nanodb.expressions.TupleLiteral;<a name="line.13"></a>
+<span class="sourceLineNo">014</span>import edu.caltech.nanodb.queryeval.Planner;<a name="line.14"></a>
+<span class="sourceLineNo">015</span>import edu.caltech.nanodb.queryeval.PlannerFactory;<a name="line.15"></a>
+<span class="sourceLineNo">016</span>import edu.caltech.nanodb.queryeval.TupleProcessor;<a name="line.16"></a>
+<span class="sourceLineNo">017</span><a name="line.17"></a>
+<span class="sourceLineNo">018</span>import edu.caltech.nanodb.relations.Schema;<a name="line.18"></a>
+<span class="sourceLineNo">019</span>import edu.caltech.nanodb.relations.SchemaNameException;<a name="line.19"></a>
+<span class="sourceLineNo">020</span>import edu.caltech.nanodb.relations.TableInfo;<a name="line.20"></a>
+<span class="sourceLineNo">021</span>import edu.caltech.nanodb.relations.Tuple;<a name="line.21"></a>
+<span class="sourceLineNo">022</span><a name="line.22"></a>
+<span class="sourceLineNo">023</span>import edu.caltech.nanodb.server.EventDispatcher;<a name="line.23"></a>
+<span class="sourceLineNo">024</span>import edu.caltech.nanodb.storage.TableManager;<a name="line.24"></a>
+<span class="sourceLineNo">025</span>import edu.caltech.nanodb.storage.TupleFile;<a name="line.25"></a>
+<span class="sourceLineNo">026</span>import edu.caltech.nanodb.storage.StorageManager;<a name="line.26"></a>
+<span class="sourceLineNo">027</span><a name="line.27"></a>
+<span class="sourceLineNo">028</span><a name="line.28"></a>
+<span class="sourceLineNo">029</span>/**<a name="line.29"></a>
+<span class="sourceLineNo">030</span> * This command object represents a top-level &lt;tt&gt;UPDATE&lt;/tt&gt; command issued<a name="line.30"></a>
+<span class="sourceLineNo">031</span> * against the database.<a name="line.31"></a>
+<span class="sourceLineNo">032</span> */<a name="line.32"></a>
+<span class="sourceLineNo">033</span>public class UpdateCommand extends QueryCommand {<a name="line.33"></a>
+<span class="sourceLineNo">034</span><a name="line.34"></a>
+<span class="sourceLineNo">035</span>    /**<a name="line.35"></a>
+<span class="sourceLineNo">036</span>     * An implementation of the tuple processor interface used by the<a name="line.36"></a>
+<span class="sourceLineNo">037</span>     * {@link UpdateCommand} to update each tuple.<a name="line.37"></a>
+<span class="sourceLineNo">038</span>     */<a name="line.38"></a>
+<span class="sourceLineNo">039</span>    private static class TupleUpdater implements TupleProcessor {<a name="line.39"></a>
+<span class="sourceLineNo">040</span>        /** The table whose tuples will be modified. */<a name="line.40"></a>
+<span class="sourceLineNo">041</span>        private TableInfo tableInfo;<a name="line.41"></a>
+<span class="sourceLineNo">042</span><a name="line.42"></a>
+<span class="sourceLineNo">043</span>        private TupleFile tupleFile;<a name="line.43"></a>
+<span class="sourceLineNo">044</span><a name="line.44"></a>
+<span class="sourceLineNo">045</span>        /** The event-dispatcher for firing row-update events. */<a name="line.45"></a>
+<span class="sourceLineNo">046</span>        private EventDispatcher eventDispatcher;<a name="line.46"></a>
+<span class="sourceLineNo">047</span><a name="line.47"></a>
+<span class="sourceLineNo">048</span>        /**<a name="line.48"></a>
+<span class="sourceLineNo">049</span>         * This is the list of values to change in the &lt;tt&gt;UPDATE&lt;/tt&gt; statement.<a name="line.49"></a>
+<span class="sourceLineNo">050</span>         */<a name="line.50"></a>
+<span class="sourceLineNo">051</span>        private List&lt;UpdateValue&gt; values;<a name="line.51"></a>
+<span class="sourceLineNo">052</span><a name="line.52"></a>
+<span class="sourceLineNo">053</span>        /**<a name="line.53"></a>
+<span class="sourceLineNo">054</span>         * The schema of the input tuples produced by the query evaluation.  The<a name="line.54"></a>
+<span class="sourceLineNo">055</span>         * update-expressions are evaluated in the context of this schema.<a name="line.55"></a>
+<span class="sourceLineNo">056</span>         */<a name="line.56"></a>
+<span class="sourceLineNo">057</span>        private Schema schema;<a name="line.57"></a>
+<span class="sourceLineNo">058</span><a name="line.58"></a>
+<span class="sourceLineNo">059</span>        /**<a name="line.59"></a>
+<span class="sourceLineNo">060</span>         * The environment used to evaluate the update expressions.  This object<a name="line.60"></a>
+<span class="sourceLineNo">061</span>         * is created once and reused throughout the update operation.<a name="line.61"></a>
+<span class="sourceLineNo">062</span>         */<a name="line.62"></a>
+<span class="sourceLineNo">063</span>        private Environment environment = new Environment();<a name="line.63"></a>
+<span class="sourceLineNo">064</span><a name="line.64"></a>
+<span class="sourceLineNo">065</span>        /**<a name="line.65"></a>
+<span class="sourceLineNo">066</span>         * The map containing column names and their new values for the update<a name="line.66"></a>
+<span class="sourceLineNo">067</span>         * operation.  This object is created once and reused throughout the<a name="line.67"></a>
+<span class="sourceLineNo">068</span>         * update operation.<a name="line.68"></a>
+<span class="sourceLineNo">069</span>         */<a name="line.69"></a>
+<span class="sourceLineNo">070</span>        private HashMap&lt;String, Object&gt; newValues = new HashMap&lt;&gt;();<a name="line.70"></a>
+<span class="sourceLineNo">071</span><a name="line.71"></a>
+<span class="sourceLineNo">072</span>        /**<a name="line.72"></a>
+<span class="sourceLineNo">073</span>         * Initialize the tuple-updater object with the details it needs to<a name="line.73"></a>
+<span class="sourceLineNo">074</span>         * modify tuples in the specified table.<a name="line.74"></a>
+<span class="sourceLineNo">075</span>         *<a name="line.75"></a>
+<span class="sourceLineNo">076</span>         * @param tableInfo details of the table that will be modified<a name="line.76"></a>
+<span class="sourceLineNo">077</span>         *<a name="line.77"></a>
+<span class="sourceLineNo">078</span>         * @param values the list of columns to be updated, along with the<a name="line.78"></a>
+<span class="sourceLineNo">079</span>         *        corresponding expressions to generate the new values<a name="line.79"></a>
+<span class="sourceLineNo">080</span>         */<a name="line.80"></a>
+<span class="sourceLineNo">081</span>        public TupleUpdater(EventDispatcher eventDispatcher,<a name="line.81"></a>
+<span class="sourceLineNo">082</span>                            TableInfo tableInfo, List&lt;UpdateValue&gt; values) {<a name="line.82"></a>
+<span class="sourceLineNo">083</span>            this.tableInfo = tableInfo;<a name="line.83"></a>
+<span class="sourceLineNo">084</span>            this.values = values;<a name="line.84"></a>
+<span class="sourceLineNo">085</span><a name="line.85"></a>
+<span class="sourceLineNo">086</span>            // Retrieve this value since we use it over and over again.<a name="line.86"></a>
+<span class="sourceLineNo">087</span>            this.tupleFile = tableInfo.getTupleFile();<a name="line.87"></a>
+<span class="sourceLineNo">088</span><a name="line.88"></a>
+<span class="sourceLineNo">089</span>            this.eventDispatcher = eventDispatcher;<a name="line.89"></a>
+<span class="sourceLineNo">090</span>        }<a name="line.90"></a>
+<span class="sourceLineNo">091</span><a name="line.91"></a>
+<span class="sourceLineNo">092</span>        /**<a name="line.92"></a>
+<span class="sourceLineNo">093</span>         * Stores the schema that will be produced during result evaluation.<a name="line.93"></a>
+<span class="sourceLineNo">094</span>         * Currently this will almost certainly be the table-file's schema, but<a name="line.94"></a>
+<span class="sourceLineNo">095</span>         * if multiple-table update support is added then this could be an<a name="line.95"></a>
+<span class="sourceLineNo">096</span>         * aggregated schema.<a name="line.96"></a>
+<span class="sourceLineNo">097</span>         */<a name="line.97"></a>
+<span class="sourceLineNo">098</span>        public void setSchema(Schema schema) {<a name="line.98"></a>
+<span class="sourceLineNo">099</span>            this.schema = schema;<a name="line.99"></a>
+<span class="sourceLineNo">100</span>        }<a name="line.100"></a>
+<span class="sourceLineNo">101</span><a name="line.101"></a>
+<span class="sourceLineNo">102</span>        /**<a name="line.102"></a>
+<span class="sourceLineNo">103</span>         * This implementation updates each tuple it is handed, based on the<a name="line.103"></a>
+<span class="sourceLineNo">104</span>         * set of update-specs that were given in the constructor.<a name="line.104"></a>
+<span class="sourceLineNo">105</span>         */<a name="line.105"></a>
+<span class="sourceLineNo">106</span>        public void process(Tuple tuple) throws IOException {<a name="line.106"></a>
+<span class="sourceLineNo">107</span><a name="line.107"></a>
+<span class="sourceLineNo">108</span>            // Figure out what the new values should be for the tuple we are<a name="line.108"></a>
+<span class="sourceLineNo">109</span>            // processing.<a name="line.109"></a>
+<span class="sourceLineNo">110</span><a name="line.110"></a>
+<span class="sourceLineNo">111</span>            environment.clear();<a name="line.111"></a>
+<span class="sourceLineNo">112</span>            environment.addTuple(schema, tuple);<a name="line.112"></a>
+<span class="sourceLineNo">113</span><a name="line.113"></a>
+<span class="sourceLineNo">114</span>            // Make copies of the old and new tuple-values so that we can pass<a name="line.114"></a>
+<span class="sourceLineNo">115</span>            // them to the before- and after-update handlers.<a name="line.115"></a>
+<span class="sourceLineNo">116</span>            TupleLiteral oldTuple = new TupleLiteral(tuple);<a name="line.116"></a>
+<span class="sourceLineNo">117</span>            TupleLiteral newTuple = new TupleLiteral(tuple);<a name="line.117"></a>
+<span class="sourceLineNo">118</span><a name="line.118"></a>
+<span class="sourceLineNo">119</span>            newValues.clear();<a name="line.119"></a>
+<span class="sourceLineNo">120</span>            for (UpdateValue value : values) {<a name="line.120"></a>
+<span class="sourceLineNo">121</span>                Object result = value.getExpression().evaluate(environment);<a name="line.121"></a>
+<span class="sourceLineNo">122</span>                newValues.put(value.getColumnName(), result);<a name="line.122"></a>
+<span class="sourceLineNo">123</span><a name="line.123"></a>
+<span class="sourceLineNo">124</span>                // TODO:  Should probably coerce to the specific column type<a name="line.124"></a>
+<span class="sourceLineNo">125</span>                //        specified in the table's schema...<a name="line.125"></a>
+<span class="sourceLineNo">126</span>                newTuple.setColumnValue(<a name="line.126"></a>
+<span class="sourceLineNo">127</span>                    schema.getColumnIndex(value.getColumnName()), result);<a name="line.127"></a>
+<span class="sourceLineNo">128</span>            }<a name="line.128"></a>
+<span class="sourceLineNo">129</span><a name="line.129"></a>
+<span class="sourceLineNo">130</span>            eventDispatcher.fireBeforeRowUpdated(tableInfo, tuple, newTuple);<a name="line.130"></a>
+<span class="sourceLineNo">131</span>            tupleFile.updateTuple(tuple, newValues);<a name="line.131"></a>
+<span class="sourceLineNo">132</span>            eventDispatcher.fireAfterRowUpdated(tableInfo, oldTuple, tuple);<a name="line.132"></a>
+<span class="sourceLineNo">133</span>        }<a name="line.133"></a>
+<span class="sourceLineNo">134</span><a name="line.134"></a>
+<span class="sourceLineNo">135</span>        public void finish() {<a name="line.135"></a>
+<span class="sourceLineNo">136</span>            // Not used<a name="line.136"></a>
+<span class="sourceLineNo">137</span>        }<a name="line.137"></a>
+<span class="sourceLineNo">138</span>    }<a name="line.138"></a>
+<span class="sourceLineNo">139</span><a name="line.139"></a>
+<span class="sourceLineNo">140</span><a name="line.140"></a>
+<span class="sourceLineNo">141</span>    /** The name of the table that the rows will be updated on. */<a name="line.141"></a>
+<span class="sourceLineNo">142</span>    private String tableName;<a name="line.142"></a>
+<span class="sourceLineNo">143</span><a name="line.143"></a>
+<span class="sourceLineNo">144</span><a name="line.144"></a>
+<span class="sourceLineNo">145</span>    /**<a name="line.145"></a>
+<span class="sourceLineNo">146</span>     * This field holds the list of names and expressions that will be applied<a name="line.146"></a>
+<span class="sourceLineNo">147</span>     * in the update command.<a name="line.147"></a>
+<span class="sourceLineNo">148</span>     */<a name="line.148"></a>
+<span class="sourceLineNo">149</span>    private List&lt;UpdateValue&gt; values = new ArrayList&lt;&gt;();<a name="line.149"></a>
+<span class="sourceLineNo">150</span><a name="line.150"></a>
+<span class="sourceLineNo">151</span><a name="line.151"></a>
+<span class="sourceLineNo">152</span>    /**<a name="line.152"></a>
+<span class="sourceLineNo">153</span>     * If a &lt;tt&gt;WHERE&lt;/tt&gt; expression is specified, this field will refer to<a name="line.153"></a>
+<span class="sourceLineNo">154</span>     * the expression to be evaluated.<a name="line.154"></a>
+<span class="sourceLineNo">155</span>     */<a name="line.155"></a>
+<span class="sourceLineNo">156</span>    private Expression whereExpr = null;<a name="line.156"></a>
+<span class="sourceLineNo">157</span><a name="line.157"></a>
+<span class="sourceLineNo">158</span><a name="line.158"></a>
+<span class="sourceLineNo">159</span>    private TableInfo tableInfo;<a name="line.159"></a>
+<span class="sourceLineNo">160</span><a name="line.160"></a>
+<span class="sourceLineNo">161</span><a name="line.161"></a>
+<span class="sourceLineNo">162</span>    /**<a name="line.162"></a>
+<span class="sourceLineNo">163</span>     * Constructs a new update command for &lt;tt&gt;UPDATE&lt;/tt&gt; statements.<a name="line.163"></a>
+<span class="sourceLineNo">164</span>     * Note that the list of value and the where-expression are both<a name="line.164"></a>
+<span class="sourceLineNo">165</span>     * uninitialized at first.<a name="line.165"></a>
+<span class="sourceLineNo">166</span>     *<a name="line.166"></a>
+<span class="sourceLineNo">167</span>     * @param tableName the name of the table that this command will update<a name="line.167"></a>
+<span class="sourceLineNo">168</span>     */<a name="line.168"></a>
+<span class="sourceLineNo">169</span>    public UpdateCommand(String tableName) {<a name="line.169"></a>
+<span class="sourceLineNo">170</span>        super(QueryCommand.Type.UPDATE);<a name="line.170"></a>
+<span class="sourceLineNo">171</span><a name="line.171"></a>
+<span class="sourceLineNo">172</span>        if (tableName == null)<a name="line.172"></a>
+<span class="sourceLineNo">173</span>            throw new NullPointerException("tableName cannot be null");<a name="line.173"></a>
+<span class="sourceLineNo">174</span><a name="line.174"></a>
+<span class="sourceLineNo">175</span>        this.tableName = tableName;<a name="line.175"></a>
+<span class="sourceLineNo">176</span>    }<a name="line.176"></a>
+<span class="sourceLineNo">177</span><a name="line.177"></a>
+<span class="sourceLineNo">178</span><a name="line.178"></a>
+<span class="sourceLineNo">179</span>    public void addValue(String colName, Expression valueExpr) {<a name="line.179"></a>
+<span class="sourceLineNo">180</span>        values.add(new UpdateValue(colName, valueExpr));<a name="line.180"></a>
+<span class="sourceLineNo">181</span>    }<a name="line.181"></a>
+<span class="sourceLineNo">182</span><a name="line.182"></a>
+<span class="sourceLineNo">183</span><a name="line.183"></a>
+<span class="sourceLineNo">184</span>    /**<a name="line.184"></a>
+<span class="sourceLineNo">185</span>     * Sets the expression for the &lt;tt&gt;WHERE&lt;/tt&gt; clause.  A &lt;code&gt;null&lt;/code&gt;<a name="line.185"></a>
+<span class="sourceLineNo">186</span>     * value indicates that the UPDATE command has no WHERE condition.<a name="line.186"></a>
+<span class="sourceLineNo">187</span>     *<a name="line.187"></a>
+<span class="sourceLineNo">188</span>     * @param whereExpr the where-expression that constrains which rows will be<a name="line.188"></a>
+<span class="sourceLineNo">189</span>     *        updated<a name="line.189"></a>
+<span class="sourceLineNo">190</span>     */<a name="line.190"></a>
+<span class="sourceLineNo">191</span>    public void setWhereExpr(Expression whereExpr) {<a name="line.191"></a>
+<span class="sourceLineNo">192</span>        this.whereExpr = whereExpr;<a name="line.192"></a>
+<span class="sourceLineNo">193</span>    }<a name="line.193"></a>
+<span class="sourceLineNo">194</span><a name="line.194"></a>
+<span class="sourceLineNo">195</span><a name="line.195"></a>
+<span class="sourceLineNo">196</span>    protected void prepareQueryPlan(StorageManager storageManager)<a name="line.196"></a>
+<span class="sourceLineNo">197</span>        throws IOException, SchemaNameException {<a name="line.197"></a>
+<span class="sourceLineNo">198</span><a name="line.198"></a>
+<span class="sourceLineNo">199</span>        // Open the table and save the TableInfo so that the<a name="line.199"></a>
+<span class="sourceLineNo">200</span>        // getTupleProcessor() method can use it.<a name="line.200"></a>
+<span class="sourceLineNo">201</span>        TableManager tableManager = storageManager.getTableManager();<a name="line.201"></a>
+<span class="sourceLineNo">202</span>        tableInfo = tableManager.openTable(tableName);<a name="line.202"></a>
+<span class="sourceLineNo">203</span><a name="line.203"></a>
+<span class="sourceLineNo">204</span>        // Create a plan for executing the SQL query.<a name="line.204"></a>
+<span class="sourceLineNo">205</span>        Planner planner = PlannerFactory.getPlanner(storageManager);<a name="line.205"></a>
+<span class="sourceLineNo">206</span>        plan = planner.makeSimpleSelect(tableName, whereExpr, null);<a name="line.206"></a>
+<span class="sourceLineNo">207</span>        plan.prepare();<a name="line.207"></a>
+<span class="sourceLineNo">208</span>    }<a name="line.208"></a>
+<span class="sourceLineNo">209</span><a name="line.209"></a>
+<span class="sourceLineNo">210</span><a name="line.210"></a>
+<span class="sourceLineNo">211</span>    @Override<a name="line.211"></a>
+<span class="sourceLineNo">212</span>    protected TupleProcessor getTupleProcessor(EventDispatcher eventDispatcher) {<a name="line.212"></a>
+<span class="sourceLineNo">213</span>        return new TupleUpdater(eventDispatcher, tableInfo, values);<a name="line.213"></a>
+<span class="sourceLineNo">214</span>    }<a name="line.214"></a>
+<span class="sourceLineNo">215</span><a name="line.215"></a>
+<span class="sourceLineNo">216</span><a name="line.216"></a>
+<span class="sourceLineNo">217</span>    @Override<a name="line.217"></a>
+<span class="sourceLineNo">218</span>    public String toString() {<a name="line.218"></a>
+<span class="sourceLineNo">219</span>        StringBuilder sb = new StringBuilder();<a name="line.219"></a>
+<span class="sourceLineNo">220</span><a name="line.220"></a>
+<span class="sourceLineNo">221</span>        sb.append("UpdateCommand[table = ");<a name="line.221"></a>
+<span class="sourceLineNo">222</span>        sb.append(tableName);<a name="line.222"></a>
+<span class="sourceLineNo">223</span><a name="line.223"></a>
+<span class="sourceLineNo">224</span>        sb.append(", values = (");<a name="line.224"></a>
+<span class="sourceLineNo">225</span>        boolean first = true;<a name="line.225"></a>
+<span class="sourceLineNo">226</span>        for (UpdateValue v : values) {<a name="line.226"></a>
+<span class="sourceLineNo">227</span>            if (first)<a name="line.227"></a>
+<span class="sourceLineNo">228</span>                first = false;<a name="line.228"></a>
+<span class="sourceLineNo">229</span>            else<a name="line.229"></a>
+<span class="sourceLineNo">230</span>                sb.append(',');<a name="line.230"></a>
+<span class="sourceLineNo">231</span><a name="line.231"></a>
+<span class="sourceLineNo">232</span>            sb.append(v);<a name="line.232"></a>
+<span class="sourceLineNo">233</span>        }<a name="line.233"></a>
+<span class="sourceLineNo">234</span>        sb.append(')');<a name="line.234"></a>
+<span class="sourceLineNo">235</span><a name="line.235"></a>
+<span class="sourceLineNo">236</span>        if (whereExpr != null) {<a name="line.236"></a>
+<span class="sourceLineNo">237</span>            sb.append(", whereExpr = \"");<a name="line.237"></a>
+<span class="sourceLineNo">238</span>            sb.append(whereExpr);<a name="line.238"></a>
+<span class="sourceLineNo">239</span>            sb.append("\"");<a name="line.239"></a>
+<span class="sourceLineNo">240</span>        }<a name="line.240"></a>
+<span class="sourceLineNo">241</span><a name="line.241"></a>
+<span class="sourceLineNo">242</span>        sb.append(']');<a name="line.242"></a>
+<span class="sourceLineNo">243</span><a name="line.243"></a>
+<span class="sourceLineNo">244</span>        return sb.toString();<a name="line.244"></a>
+<span class="sourceLineNo">245</span>    }<a name="line.245"></a>
+<span class="sourceLineNo">246</span>}<a name="line.246"></a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre>
+</div>
+</body>
+</html>
