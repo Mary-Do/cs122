@@ -101,6 +101,11 @@ public abstract class SelectNode extends PlanNode {
                 done = true;
                 return null;
             }
+
+            // Unpin tuples that don't satisfy the selection predicate
+            if (!isTupleSelected(currentTuple)) {
+                currentTuple.unpin();
+            }
         }
         while (!isTupleSelected(currentTuple));
 
