@@ -6,44 +6,74 @@ A:  Logistics
 
 A1.  List your team name and the people who worked on this assignment.
 
-     <team name>
-
-     <name>
-     <name>
-     ...
+     Team: SillyRabbitTrixAreForKids
+     Mary Do
+     Shari Kuroyama
 
 A2.  Specify the repository URL, tag name and commit-hash of the Git version
      you are submitting for your assignment.  (You can list the commit hashes
      of your repository tags with this command:  git show-ref --tags)
 
-     Repository URL:  <url>
+     Repository URL:  https://github.com/Mary-Do/cs122
      Tag name:        <tag>
      Commit hash:     <hash>
 
 A3.  Specify any late tokens you are applying to this assignment, or
      "none" if no late tokens.
+     * none
 
 A4.  Briefly describe what parts of the assignment each teammate focused on.
+     * Shari: 
+          delete tuple; 
+          bugfixing update tuple nonNull; 
+          design doc (A, B, E)
+     * Mary: 
+          update tuple (mostly); 
+          buffer management
+          design doc (C, D)
 
 B:  Deleting and Updating Tuples
 --------------------------------
 
 B1.  Briefly describe (1-3 sentences) how you reclaim slot entries in
      the slotted page.  Which slot entries are you able to reclaim?
+     * When deleting a slot, all of the data after the deleted slot gets moved
+     up and the header entry for the slot gets marked as "deleted"; but
+     the header does not move all slots up in general.  Only if the deleted
+     slot was the last one do we get to reclaim all deleted slots at the end.
 
 B2.  Briefly outline the steps of what your setNullColumnValue() function
      does.  You don't have to go into much detail; we can look at your
      code for the details.  Just describe the basic things the function
      must do to set a column-value to NULL.
+     * If the column is not already NULL, then the null flag needs to be set to true; 
+     * the column's previous data needs to be deleted; 
+     * and the column's valueOffsets needs to be set to NULL_OFFSET to indicate 
+          that the column is now NULL.
 
 B3.  Similarly, briefly outline the steps of what your
      setNonNullColumnValue() function does.
+     * If the column was previously NULL, set the null flag to false.
+     * Determine if the column's value size is going to change, and by how much.
+     * If the column was previously NULL, compute the new actual offset and set 
+          it.
+     * Update all columns after the one being updated with the new value size.
+     * Write the actual new value.
 
 C:  Unpinning Tuples and Pages
 ------------------------------
 
 C1.  Briefly describe your strategy for determining when tuples need to
      be unpinned.  Make sure to comment on plan-nodes and commands.
+
+     To unpin tuples that don't satisfy the selection predicate, we just
+     go to the getNextTuple() function in SelectNode.java, which is the
+     function that goes through each tuple and determines if it satisfies 
+     it or not - if it doesn't satisfy the predicate, we unpin the tuple.
+
+     To unpin a tuple after it has been processed, just unpin the tuple 
+     after the process() function has been called on it in the executePlan()
+     method in the QueryEvaluator class. 
 
 C2.  In general, you only need to worry about unpinning tuples because
      the backing page will also be unpinned.  However, there are some
@@ -52,12 +82,23 @@ C2.  In general, you only need to worry about unpinning tuples because
      implementation, and why you do so.  (Make sure to answer this
      question in the context of your insert-optimization changes.)
 
+     I mostly just searched for where loadDBPage() is called because
+     that function results in a DBpage being pinned. I just unpin the 
+     page whenever this function is called.
+
+
 D:  NanoDB Storage Performance
 ------------------------------
 
 D1.  In 3-6 sentences, describe your general approach for improving the
      performance of inserts, including what general file-level structuring
      you use of blocks.
+
+     We didn't have time to implement this but we would have used an
+     linked list structure for bookkeeping. It would essentially include
+     only the blocks that have enough space to hold the maximum size tuple.
+     To insert, we just add it to a block on this list. If the block 
+     becomes full, take it out of the list. 
 
 D2.  Does your file-level organization have the potential to increase the
      number of large disk seeks when performing inserts?  What steps do
@@ -86,9 +127,13 @@ NOTE:  If you wish to give anonymous feedback, a similar survey will be
 
 E1.  How many hours total did your team spend on this assignment?
      (That is, the sum of each teammate's time spent on the assignment.)
-     * ~2hr Sunday
+     * ~2hr Sunday setting up java, ant, git, etc. (both of us)
+     * 3.5hr Wed afternoon getting into the code (both of us), writing
+          delete tuple
+     * 3hr Wednesday night (both of us)
 
 E2.  What parts of the assignment were most time-consuming?  Why?
+     Getting nanodb set up and figuring out how to edit it.
 
 E3.  Did you find any parts of the assignment particularly instructive?
      Correspondingly, did any parts feel like unnecessary busy-work?
