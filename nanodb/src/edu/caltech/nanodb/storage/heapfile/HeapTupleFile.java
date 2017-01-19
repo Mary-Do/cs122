@@ -246,7 +246,8 @@ page_scan:  // So we can break out of the outer loop from inside the inner loop.
 
             // If we got here then we reached the end of this page with no
             // tuples.  Go on to the next data-page, and start with the first
-            // tuple in that page.
+            // tuple in that page. Unpins twice because we pinned twice.
+            dbPage.unpin();
 
             try {
                 dbPage = storageManager.loadDBPage(dbFile, dbPage.getPageNo() + 1);
@@ -319,7 +320,6 @@ page_scan:  // So we can break out of the outer loop from inside the inner loop.
             }
 
             int freeSpace = DataPage.getFreeSpaceInPage(dbPage);
-
             logger.trace(String.format("Page %d has %d bytes of free space.",
                          pageNo, freeSpace));
 
@@ -333,6 +333,7 @@ page_scan:  // So we can break out of the outer loop from inside the inner loop.
 
             // If we reached this point then the page doesn't have enough
             // space, so go on to the next data page.
+            dbPage.unpin();
             dbPage = null;  // So the next section will work properly.
             pageNo++;
         }
@@ -356,6 +357,8 @@ page_scan:  // So we can break out of the outer loop from inside the inner loop.
             HeapFilePageTuple.storeNewTuple(schema, dbPage, slot, tupOffset, tup);
 
         DataPage.sanityCheck(dbPage);
+
+        dbPage.unpin();
 
         return pageTup;
     }
